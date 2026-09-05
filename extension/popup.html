@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>SoroTracker Extension</title>
+  <style>
+    body {
+      width: 300px;
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f141c;
+      color: #f1f5f9;
+      box-sizing: border-box;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #1e293b;
+    }
+    .logo-badge {
+      width: 28px;
+      height: 28px;
+      background: #2563eb;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: #fff;
+    }
+    h2 {
+      font-size: 14px;
+      margin: 0;
+      font-weight: 700;
+    }
+    .subtitle {
+      font-size: 11px;
+      color: #94a3b8;
+    }
+    .status-card {
+      background: #182234;
+      border: 1px solid #233044;
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 12px;
+      font-size: 12px;
+    }
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .status-val {
+      font-weight: 600;
+      color: #38bdf8;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      text-align: center;
+      cursor: pointer;
+      border: 1px solid transparent;
+      margin-bottom: 8px;
+      transition: all 0.15s ease;
+    }
+    .btn-primary {
+      background: #2563eb;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #1d4ed8;
+    }
+    .btn-secondary {
+      background: #1e293b;
+      color: #e2e8f0;
+      border-color: #334155;
+    }
+    .btn-secondary:hover {
+      background: #334155;
+    }
+    .field {
+      margin-top: 12px;
+    }
+    label {
+      display: block;
+      font-size: 11px;
+      color: #94a3b8;
+      margin-bottom: 4px;
+    }
+    input[type="text"] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px 8px;
+      background: #151d2a;
+      border: 1px solid #233044;
+      border-radius: 6px;
+      color: #f1f5f9;
+      font-size: 12px;
+    }
+    .footer {
+      margin-top: 12px;
+      text-align: center;
+    }
+    a {
+      color: #38bdf8;
+      text-decoration: none;
+      font-size: 11px;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo-badge">X</div>
+    <div>
+      <h2>SoroTracker Extension</h2>
+      <div class="subtitle">Extracts & syncs bookmarks & history</div>
+    </div>
+  </div>
+
+  <div class="status-card">
+    <div class="status-row">
+      <span>Page:</span>
+      <span id="tab-status" class="status-val">Detecting...</span>
+    </div>
+    <div class="status-row">
+      <span>Scanned Items:</span>
+      <span id="scanned-count" class="status-val">0</span>
+    </div>
+  </div>
+
+  <button id="scan-btn" class="btn btn-primary">Scan Current Viewport</button>
+  <button id="sync-btn" class="btn btn-secondary">Sync to SoroTracker</button>
+  <button id="export-json-btn" class="btn btn-secondary">Export JSON Archive</button>
+  <button id="open-x-btn" class="btn btn-secondary">Open x.com/i/history</button>
+
+  <div class="field">
+    <label for="dash-url">SoroTracker Service URL:</label>
+    <input type="text" id="dash-url" value="http://localhost:3000">
+  </div>
+  <div class="field">
+    <label for="auth-token">Sync Authentication Token:</label>
+    <input type="password" id="auth-token" placeholder="sh_live_...">
+  </div>
+
+  <div class="footer">
+    <a id="open-dash-link" href="#" target="_blank">Open Full Dashboard &rarr;</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

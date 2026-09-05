@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>SoroTracker Extension Settings</title>
+  <style>
+    body {
+      max-width: 560px;
+      margin: 40px auto;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0b0f17;
+      color: #f1f5f9;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+    }
+    h1 {
+      font-size: 20px;
+      margin-top: 0;
+      color: #38bdf8;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 6px;
+      font-size: 13px;
+    }
+    .desc {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-bottom: 8px;
+    }
+    input[type="text"], input[type="number"] {
+      width: 100%;
+      padding: 10px;
+      background: #151d2a;
+      border: 1px solid #233044;
+      border-radius: 8px;
+      color: #ffffff;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+    }
+    button {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #1d4ed8;
+    }
+    #status-msg {
+      margin-left: 12px;
+      font-size: 13px;
+      color: #10b981;
+    }
+  </style>
+</head>
+<body>
+  <h1>SoroTracker Extension Settings</h1>
+
+  <div class="form-group">
+    <label for="dashboardUrl">SoroTracker Service URL</label>
+    <div class="desc">The live web endpoint where extracted bookmarks, posts, and links are sent.</div>
+    <input type="text" id="dashboardUrl" placeholder="http://localhost:3000">
+  </div>
+
+  <div class="form-group">
+    <label for="authToken">Sync Authentication Token</label>
+    <div class="desc">Security token required for authenticating remote calls into SoroTracker.</div>
+    <input type="password" id="authToken" placeholder="sh_live_...">
+  </div>
+
+  <div class="form-group">
+    <label class="checkbox-group">
+      <input type="checkbox" id="autoSync" checked>
+      <span>Auto-sync new items immediately while scrolling</span>
+    </label>
+  </div>
+
+  <div class="form-group">
+    <label for="syncIntervalSec">Batch Sync Frequency (seconds)</label>
+    <input type="number" id="syncIntervalSec" min="2" max="60" value="5">
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 10px;">
+    <button id="save-btn">Save Settings</button>
+    <button id="test-btn" style="background: #1e293b; border: 1px solid #334155;">Test Connection</button>
+    <span id="status-msg"></span>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

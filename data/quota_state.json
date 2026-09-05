@@ -1,0 +1,7 @@
+{
+  "isQuotaExhausted": true,
+  "quotaExhaustedTimestamp": 1788603989246,
+  "quotaErrorMessage": "Quota exceeded for quota metric 'Free daily write units per project (free tier database)' and limit 'Free daily write units per project (free tier database) per day' of service 'firestore.googleapis.com' for consumer 'project_number:635807308164'.",
+  "metric": "Free daily write units per project (free tier database)",
+  "quotaResetNotice": "Firestore daily write quota reached (free tier limit: 20,000 writes/day). Quota will automatically reset tomorrow. All browsing history and timeline records are safely preserved in local disk storage without data loss."
+}

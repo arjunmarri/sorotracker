@@ -1,0 +1,60 @@
+{
+  "manifest_version": 3,
+  "name": "SoroTracker Extension",
+  "version": "1.0.0",
+  "description": "Extracts tweets, authors, and external reference links from x.com/i/history and syncs to your personal SoroTracker archive dashboard.",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "*://x.com/*",
+    "*://*.x.com/*",
+    "*://twitter.com/*",
+    "*://*.twitter.com/*",
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*",
+    "https://*/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SoroTracker Extension",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://x.com/i/history*",
+        "*://x.com/i/bookmarks*",
+        "*://x.com/*/status/*",
+        "*://twitter.com/i/history*",
+        "*://twitter.com/i/bookmarks*",
+        "*://twitter.com/*/status/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "sorotracker@dashboard.local",
+      "strict_min_version": "109.0"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}

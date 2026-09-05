@@ -1,0 +1,58 @@
+{
+  "entities": {
+    "HistoryRecord": {
+      "title": "HistoryRecord",
+      "description": "An archived tweet record containing author, content, media, links, and engagement metrics.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the record or tweet status ID"
+        },
+        "tweetUrl": {
+          "type": "string",
+          "description": "Direct canonical link to the tweet on x.com"
+        },
+        "authorName": {
+          "type": "string",
+          "description": "Display name of the tweet author"
+        },
+        "authorHandle": {
+          "type": "string",
+          "description": "Username handle including @"
+        },
+        "authorAvatarUrl": {
+          "type": "string",
+          "description": "URL of the author profile picture"
+        },
+        "isVerified": {
+          "type": "boolean",
+          "description": "Whether the author has a verification badge"
+        },
+        "text": {
+          "type": "string",
+          "description": "Full text body of the tweet"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp when the tweet was posted"
+        },
+        "scannedAt": {
+          "type": "string",
+          "description": "Timestamp when the extension scanned the record"
+        },
+        "sourcePage": {
+          "type": "string",
+          "description": "URL of the page where the tweet was captured (e.g. x.com/i/history)"
+        }
+      },
+      "required": ["id", "text", "scannedAt"]
+    }
+  },
+  "firestore": {
+    "/history_records/{recordId}": {
+      "schema": "HistoryRecord",
+      "description": "Collection storing archived posts, reading history, and external reference links pushed from the SoroTracker browser extension."
+    }
+  }
+}
