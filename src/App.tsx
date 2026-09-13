@@ -372,6 +372,9 @@ export default function App() {
       const data = await res.json();
       if (data.records && Array.isArray(data.records)) {
         setRecords(data.records);
+        try {
+          (window as any).__SOROTRACK_VIEWER_DATA__ = data.records;
+        } catch {}
       } else {
         setRecords([]);
       }

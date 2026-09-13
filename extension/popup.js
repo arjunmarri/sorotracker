@@ -695,6 +695,95 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Sync from DB to Local JSON
+  const syncFromDbBtn = document.getElementById('sync-from-db-btn');
+  syncFromDbBtn?.addEventListener('click', () => {
+    if (syncFromDbBtn) {
+      syncFromDbBtn.innerHTML = '<span>⏳</span><span>Fetching from DB...</span>';
+      syncFromDbBtn.disabled = true;
+    }
+
+    browserAPI.storage.local.get(['dashboardUrl', 'authToken', 'soro_history_json', 'soro_synced_ids'], (res) => {
+      const baseUrl = (res?.dashboardUrl || dashUrlInput?.value || 'http://localhost:3000').replace(/\/+$/, '');
+      const token = res?.authToken || authTokenInput?.value || '';
+
+      const targetEndpoint = `${baseUrl}/api/export/json`;
+
+      fetch(targetEndpoint, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`Server returned HTTP ${response.status}`);
+          }
+          return response.json();
+        })
+        .then(incoming => {
+          const rawList = Array.isArray(incoming) ? incoming : (incoming.records || incoming.items || []);
+          if (!Array.isArray(rawList) || rawList.length === 0) {
+            showImportFeedback('Cloud DB currently has 0 archived records.', 'info');
+            if (syncFromDbBtn) {
+              syncFromDbBtn.innerHTML = '<span>☁️</span><span>Sync from DB (Update Local JSON)</span>';
+              syncFromDbBtn.disabled = false;
+            }
+            return;
+          }
+
+          const existingRecords = res?.soro_history_json || [];
+          const syncedSet = new Set(res?.soro_synced_ids || []);
+          const map = new Map();
+          existingRecords.forEach(r => map.set(r.id, r));
+
+          let newCount = 0;
+          const syncTimestamp = new Date().toISOString();
+
+          rawList.forEach(item => {
+            const normList = normalizeImportedRecords([item]);
+            const norm = normList[0];
+            if (norm) {
+              norm.isSynced = true;
+              if (!norm.syncedAt) norm.syncedAt = norm.scannedAt || norm.createdAt || syncTimestamp;
+              if (!map.has(norm.id)) newCount++;
+              map.set(norm.id, norm);
+              syncedSet.add(norm.id);
+            }
+          });
+
+          const mergedList = Array.from(map.values());
+          const updatedSyncedIds = Array.from(syncedSet);
+          const remainingUnsynced = Math.max(0, mergedList.length - updatedSyncedIds.length);
+
+          browserAPI.storage.local.set({
+            soro_history_json: mergedList,
+            soro_synced_ids: updatedSyncedIds,
+            soro_history_count: mergedList.length,
+            soro_unsynced_count: remainingUnsynced,
+            soro_sync_status: 'online',
+            soro_last_sync_time: syncTimestamp
+          }, () => {
+            updateStatusDisplay('online', remainingUnsynced, mergedList.length);
+            showImportFeedback(`✓ Synced from Cloud DB! Pulled ${rawList.length} records (${newCount} new, ${mergedList.length} total local JSON).`, 'success');
+            if (syncFromDbBtn) {
+              syncFromDbBtn.innerHTML = '<span>✓</span><span>Synced from DB</span>';
+              setTimeout(() => {
+                if (syncFromDbBtn) {
+                  syncFromDbBtn.innerHTML = '<span>☁️</span><span>Sync from DB (Update Local JSON)</span>';
+                  syncFromDbBtn.disabled = false;
+                }
+              }, 3000);
+            }
+          });
+        })
+        .catch(err => {
+          showImportFeedback(`⚠ Failed to sync from DB: ${err.message || 'Check server URL'}`, 'error');
+          if (syncFromDbBtn) {
+            syncFromDbBtn.innerHTML = '<span>☁️</span><span>Sync from DB (Update Local JSON)</span>';
+            syncFromDbBtn.disabled = false;
+          }
+        });
+    });
+  });
+
   function downloadJsonBlob(data, filename) {
     try {
       const jsonStr = JSON.stringify(data, null, 2);

@@ -1,6 +1,6 @@
 /**
  * SoroTrack Local Offline Viewer
- * Standalone Client-Side Engine — Zero Server Connections
+ * Standalone Client-Side Engine — Local JSON with Cloud DB Sync
  */
 
 (function () {
@@ -11,19 +11,20 @@
   // State
   let allRecords = [];
   let syncedIds = new Set();
-  let currentScope = 'synced'; // 'synced' | 'all'
+  let currentScope = 'all'; // Default to 'all' so records are immediately visible!
   let selectedCategory = 'all';
   let selectedAuthor = '';
   let searchQuery = '';
   let bookmarksOnly = false;
   let linksOnly = false;
   let mediaOnly = false;
-  let sortBy = 'latest_synced';
+  let sortBy = 'latest_date';
   let viewMode = 'cards';
   let fontSize = 'md';
   let currentPage = 1;
   const PAGE_SIZE = 40;
   let filteredRecords = [];
+  let isFetchingCloud = false;
 
   // DOM Elements
   const headerCountText = document.getElementById('header-count-text');
@@ -52,8 +53,10 @@
   const emptyStateDesc = document.getElementById('empty-state-desc');
   const btnEmptyClearFilters = document.getElementById('btn-empty-clear-filters');
   const btnEmptyLoadJson = document.getElementById('btn-empty-load-json');
+  const btnEmptySyncDb = document.getElementById('btn-empty-sync-db');
   const loadMoreContainer = document.getElementById('load-more-container');
   const btnLoadMore = document.getElementById('btn-load-more');
+  const btnSyncFromDb = document.getElementById('btn-sync-from-db');
   const btnLoadJson = document.getElementById('btn-load-json');
   const localFileInput = document.getElementById('local-file-input');
   const btnExportJson = document.getElementById('btn-export-json');
@@ -144,7 +147,7 @@
     return map[cat] || 'General';
   }
 
-  function showToast(msg, duration = 3000) {
+  function showToast(msg, duration = 3500) {
     if (!toastNotice) return;
     toastNotice.textContent = msg;
     toastNotice.style.display = 'block';
@@ -166,7 +169,7 @@
 
   // Format Tweet Text with clickable URLs, mentions, hashtags
   function formatTweetText(text) {
-    if (!text) return '';
+    if (!text) return '<span style="color: var(--text-muted); font-style: italic;">[No text content]</span>';
     let escaped = escapeHtml(text);
 
     // Convert URLs
@@ -235,28 +238,206 @@
     }
   }
 
-  // Load Data
+  // Normalizer: guarantees consistent object shape for every record
+  function normalizeRecord(item) {
+    if (!item || typeof item !== 'object') return null;
+    const raw = item.tweet ? item.tweet : item;
+
+    let id = raw.id || raw.id_str || raw.tweetId || raw.tweet_id;
+    let tweetUrl = raw.tweetUrl || raw.url || '';
+    if (!id && tweetUrl) {
+      const m = tweetUrl.match(/status\/(\d+)/);
+      if (m) id = m[1];
+    }
+    if (!id) {
+      const seed = (raw.text || raw.full_text || raw.content || '') + (raw.createdAt || raw.created_at || '');
+      if (!seed.trim()) return null;
+      let hash = 0;
+      for (let i = 0; i < seed.length; i++) hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
+      id = 'rec_' + Math.abs(hash).toString(36);
+    }
+    id = String(id);
+
+    const text = (raw.text || raw.full_text || raw.content || raw.body || raw.title || '').trim();
+
+    let authorName = raw.authorName || raw.author || raw.user?.name || 'X User';
+    let authorHandle = raw.authorHandle || (raw.user?.screen_name ? `@${raw.user.screen_name}` : '');
+    if (authorHandle && !authorHandle.startsWith('@')) authorHandle = `@${authorHandle}`;
+    const authorAvatarUrl = raw.authorAvatarUrl || raw.authorAvatar || raw.user?.profile_image_url_https || '';
+
+    const createdAt = raw.createdAt || raw.created_at || raw.scannedAt || new Date().toISOString();
+    const scannedAt = raw.scannedAt || createdAt;
+    const syncedAt = raw.syncedAt || (raw.isSynced ? scannedAt : null);
+
+    return {
+      ...raw,
+      id,
+      text,
+      tweetUrl,
+      authorName,
+      authorHandle,
+      authorAvatarUrl,
+      createdAt,
+      scannedAt,
+      syncedAt,
+      isBookmarked: Boolean(raw.isBookmarked || raw.tags?.includes('bookmark')),
+      media: Array.isArray(raw.media) ? raw.media : [],
+      links: Array.isArray(raw.links) ? raw.links : [],
+      tags: Array.isArray(raw.tags) ? raw.tags : [],
+      metrics: raw.metrics || {
+        likes: raw.favorite_count || raw.likes || 0,
+        retweets: raw.retweet_count || raw.retweets || 0,
+        replies: raw.reply_count || raw.replies || 0,
+        views: raw.views || ''
+      }
+    };
+  }
+
+  // Cloud DB Sync: updates local JSON storage directly from SoroTrack cloud database
+  async function fetchFromCloudDB(options = {}) {
+    const { silent = false, callback = null } = options;
+
+    if (isFetchingCloud) return;
+    isFetchingCloud = true;
+
+    if (btnSyncFromDb) {
+      btnSyncFromDb.innerHTML = '<span>⏳</span><span>Syncing DB...</span>';
+      btnSyncFromDb.disabled = true;
+    }
+    if (btnEmptySyncDb) {
+      btnEmptySyncDb.innerHTML = '<span>⏳</span><span>Syncing from DB...</span>';
+      btnEmptySyncDb.disabled = true;
+    }
+
+    try {
+      // Determine service base URL
+      let baseUrl = '';
+      if (window.location.protocol.startsWith('http')) {
+        baseUrl = window.location.origin;
+      } else {
+        // In extension context (chrome-extension://), check storage or default to localhost:3000
+        const storedUrl = localStorage.getItem('soro_dashboard_url') || 'http://localhost:3000';
+        baseUrl = storedUrl;
+      }
+
+      // If running inside extension, attempt to read stored dashboardUrl
+      if (browserAPI?.storage?.local) {
+        try {
+          const cfg = await new Promise(res => browserAPI.storage.local.get(['dashboardUrl'], res));
+          if (cfg?.dashboardUrl) baseUrl = cfg.dashboardUrl;
+        } catch {}
+      }
+
+      baseUrl = baseUrl.replace(/\/+$/, '');
+
+      // Fetch all records from cloud DB endpoint
+      const targetUrl = `${baseUrl}/api/export/json`;
+      const res = await fetch(targetUrl, {
+        headers: { 'Accept': 'application/json' }
+      });
+
+      if (!res.ok) {
+        throw new Error(`Cloud server responded with status ${res.status}`);
+      }
+
+      const incoming = await res.json();
+      const rawList = Array.isArray(incoming) ? incoming : (incoming.records || incoming.items || []);
+
+      if (!Array.isArray(rawList) || rawList.length === 0) {
+        if (!silent) showToast('Cloud database is currently empty (0 records found).');
+        return;
+      }
+
+      // Normalize and mark as synced
+      let newCount = 0;
+      const map = new Map();
+      allRecords.forEach(r => map.set(r.id, r));
+
+      rawList.forEach(item => {
+        const norm = normalizeRecord(item);
+        if (norm) {
+          norm.isSynced = true;
+          if (!norm.syncedAt) norm.syncedAt = norm.scannedAt || norm.createdAt || new Date().toISOString();
+          if (!map.has(norm.id)) newCount++;
+          map.set(norm.id, norm);
+          syncedIds.add(norm.id);
+        }
+      });
+
+      allRecords = Array.from(map.values());
+
+      // Save to localStorage
+      try {
+        localStorage.setItem('soro_history_local_records', JSON.stringify(allRecords));
+        localStorage.setItem('soro_history_json', JSON.stringify(allRecords));
+        localStorage.setItem('soro_synced_ids', JSON.stringify(Array.from(syncedIds)));
+      } catch (e) {
+        console.warn('localStorage save note:', e);
+      }
+
+      // Save to extension storage if available
+      if (browserAPI?.storage?.local) {
+        browserAPI.storage.local.set({
+          soro_history_json: allRecords,
+          soro_synced_ids: Array.from(syncedIds),
+          soro_history_count: allRecords.length,
+          soro_unsynced_count: 0,
+          soro_last_sync_time: new Date().toISOString()
+        });
+      }
+
+      // Mark all incoming as synced scope if active
+      onDataLoaded();
+
+      showToast(`✓ Synced ${rawList.length} records from Cloud DB! (${newCount} new, ${allRecords.length} total)`, 4000);
+      if (callback) callback(null, allRecords);
+
+    } catch (err) {
+      console.warn('Cloud DB sync error:', err);
+      if (!silent) {
+        showToast(`Could not connect to Cloud DB: ${err.message || 'Server offline'}. You can still browse local JSON.`, 5000);
+      }
+      if (callback) callback(err);
+    } finally {
+      isFetchingCloud = false;
+      if (btnSyncFromDb) {
+        btnSyncFromDb.innerHTML = '<span>☁️</span><span>Sync from DB</span>';
+        btnSyncFromDb.disabled = false;
+      }
+      if (btnEmptySyncDb) {
+        btnEmptySyncDb.innerHTML = '☁️ Sync from Cloud DB';
+        btnEmptySyncDb.disabled = false;
+      }
+    }
+  }
+
+  // Load Data Pipeline
   function loadLocalData(callback) {
-    // 1. First check if running in Web Extension
+    // 1. Check Web Extension Storage
     if (browserAPI && browserAPI.storage && browserAPI.storage.local) {
       browserAPI.storage.local.get(['soro_history_json', 'soro_synced_ids'], (res) => {
         const records = res?.soro_history_json || [];
         const ids = new Set(res?.soro_synced_ids || []);
-        
+
         if (records.length > 0) {
-          allRecords = records;
-          syncedIds = ids;
-          // Ensure syncedAt is assigned if item in syncedIds
-          allRecords.forEach(r => {
-            if (ids.has(r.id) && !r.syncedAt) {
-              r.syncedAt = r.scannedAt || r.createdAt;
+          const normalized = [];
+          records.forEach(r => {
+            const n = normalizeRecord(r);
+            if (n) {
+              if (ids.has(n.id) || !n.syncedAt) {
+                n.syncedAt = n.syncedAt || n.scannedAt || n.createdAt;
+                ids.add(n.id);
+              }
+              normalized.push(n);
             }
           });
+          allRecords = normalized;
+          syncedIds = ids;
           onDataLoaded();
           if (callback) callback();
           return;
         }
-        
+
         // Fallback to localStorage
         loadFromLocalStorage(callback);
       });
@@ -274,8 +455,16 @@
         const parsed = JSON.parse(stored);
         const list = Array.isArray(parsed) ? parsed : (parsed.records || parsed.items || []);
         if (list.length > 0) {
-          allRecords = list;
-          const ids = new Set(allRecords.filter(r => r.syncedAt).map(r => r.id));
+          const normalized = [];
+          const ids = new Set();
+          list.forEach(r => {
+            const n = normalizeRecord(r);
+            if (n) {
+              if (n.syncedAt) ids.add(n.id);
+              normalized.push(n);
+            }
+          });
+          allRecords = normalized;
           syncedIds = ids;
           onDataLoaded();
           if (callback) callback();
@@ -286,17 +475,34 @@
       console.warn('LocalStorage parse warning:', e);
     }
 
-    // If still empty, check if parent window passed data
+    // Check if parent window passed data
     if (window.opener && window.opener.__SOROTRACK_VIEWER_DATA__) {
-      allRecords = window.opener.__SOROTRACK_VIEWER_DATA__;
-      syncedIds = new Set(allRecords.filter(r => r.syncedAt).map(r => r.id));
+      const list = window.opener.__SOROTRACK_VIEWER_DATA__;
+      const normalized = [];
+      const ids = new Set();
+      list.forEach(r => {
+        const n = normalizeRecord(r);
+        if (n) {
+          n.isSynced = true;
+          n.syncedAt = n.syncedAt || n.scannedAt || n.createdAt;
+          ids.add(n.id);
+          normalized.push(n);
+        }
+      });
+      allRecords = normalized;
+      syncedIds = ids;
       onDataLoaded();
       if (callback) callback();
       return;
     }
 
-    onDataLoaded();
-    if (callback) callback();
+    // If still completely empty and running on http(s), automatically attempt to pull from Cloud DB!
+    if (window.location.protocol.startsWith('http')) {
+      fetchFromCloudDB({ silent: true, callback });
+    } else {
+      onDataLoaded();
+      if (callback) callback();
+    }
   }
 
   function onDataLoaded() {
@@ -307,10 +513,10 @@
         if (!map.has(r.id)) {
           map.set(r.id, r);
         } else {
-          // Merge metadata
           const existing = map.get(r.id);
           if (r.syncedAt) existing.syncedAt = r.syncedAt;
           if (r.isBookmarked) existing.isBookmarked = true;
+          if (r.isSynced) existing.isSynced = true;
         }
       }
     });
@@ -319,8 +525,18 @@
     // Populate Author Dropdown
     populateAuthorDropdown();
 
-    // Update Header Counter
+    // Check synced count
     const syncedCount = allRecords.filter(isRecordSynced).length;
+
+    // Scope Default Protection:
+    // If user has 0 records marked synced, default to 'all' so records are visible!
+    if (syncedCount === 0 && allRecords.length > 0) {
+      currentScope = 'all';
+      if (scopeAllBtn) scopeAllBtn.classList.add('active');
+      if (scopeSyncedBtn) scopeSyncedBtn.classList.remove('active');
+    }
+
+    // Update Header Counter
     if (headerCountText) {
       headerCountText.textContent = `${syncedCount.toLocaleString()} Synced Records`;
     }
@@ -337,7 +553,7 @@
 
   function isRecordSynced(record) {
     if (!record) return false;
-    return Boolean(record.syncedAt || syncedIds.has(record.id));
+    return Boolean(record.syncedAt || syncedIds.has(record.id) || record.isSynced);
   }
 
   function populateAuthorDropdown() {
@@ -350,7 +566,6 @@
       }
     });
 
-    // Sort by count descending
     const sortedAuthors = Array.from(authorCounts.entries()).sort((a, b) => b[1] - a[1]);
 
     const currentVal = authorSelect.value;
@@ -453,14 +668,14 @@
     filteredRecords = list;
     currentPage = 1;
 
-    // Check if any filters are active
+    // Check active filters
     const hasActiveFilters = searchQuery.trim() !== '' || 
                             selectedCategory !== 'all' || 
                             Boolean(selectedAuthor) || 
                             bookmarksOnly || 
                             linksOnly || 
                             mediaOnly || 
-                            currentScope !== 'synced';
+                            (currentScope === 'synced' && allRecords.length > list.length);
     if (btnResetFilters) {
       btnResetFilters.style.display = hasActiveFilters ? 'inline-flex' : 'none';
     }
@@ -491,10 +706,13 @@
         emptyStateView.style.display = 'flex';
         if (allRecords.length === 0) {
           emptyStateTitle.textContent = 'No Snippets in Local Storage';
-          emptyStateDesc.textContent = 'Your browser storage has no cached snippets yet. You can open a SoroTrack JSON archive or sync from X.';
+          emptyStateDesc.textContent = 'Your local JSON storage is currently empty. Click "Sync from Cloud DB" to pull your archived snippets, or open a JSON file.';
+        } else if (currentScope === 'synced' && allRecords.filter(isRecordSynced).length === 0) {
+          emptyStateTitle.textContent = 'No Synced Snippets Yet';
+          emptyStateDesc.textContent = `You have ${allRecords.length} records in local storage, but none are marked as synced. Switch to "All Local Records" or click "Sync from Cloud DB".`;
         } else {
           emptyStateTitle.textContent = 'No Matching Records Found';
-          emptyStateDesc.textContent = 'Try adjusting your search keywords, clearing author or category filters.';
+          emptyStateDesc.textContent = 'Try adjusting your search keywords or resetting category and author filters.';
         }
       }
       return;
@@ -520,9 +738,10 @@
 
   // Render Single Card HTML
   function renderCardHtml(r) {
+    if (!r) return '';
     const isSynced = isRecordSynced(r);
     const isBookmarked = Boolean(r.isBookmarked || r.tags?.includes('bookmark'));
-    const initial = (r.authorName || r.authorHandle || 'X').replace(/^@/, '').charAt(0).toUpperCase();
+    const initial = (r.authorName || r.authorHandle || 'X').replace(/^@/, '').charAt(0).toUpperCase() || 'X';
     const avatarHtml = r.authorAvatarUrl
       ? `<img src="${escapeHtml(r.authorAvatarUrl)}" alt="${escapeHtml(r.authorName)}" class="author-avatar" loading="lazy" onerror="this.outerHTML='<div class=\\'author-avatar-fallback\\'>${initial}</div>'">`
       : `<div class="author-avatar-fallback">${initial}</div>`;
@@ -627,8 +846,9 @@
 
   // Render Compact HTML
   function renderCompactHtml(r) {
+    if (!r) return '';
     const isBookmarked = Boolean(r.isBookmarked || r.tags?.includes('bookmark'));
-    const initial = (r.authorName || r.authorHandle || 'X').replace(/^@/, '').charAt(0).toUpperCase();
+    const initial = (r.authorName || r.authorHandle || 'X').replace(/^@/, '').charAt(0).toUpperCase() || 'X';
     const avatarHtml = r.authorAvatarUrl
       ? `<img src="${escapeHtml(r.authorAvatarUrl)}" alt="" class="compact-avatar" loading="lazy">`
       : `<div class="compact-avatar" style="background: #3b82f6; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 11px;">${initial}</div>`;
@@ -645,7 +865,7 @@
               <span style="color: var(--text-muted); font-family: var(--font-mono);">${escapeHtml(r.authorHandle || '')}</span>
               ${isBookmarked ? '<span style="color: var(--accent-amber); font-size: 10px;">🔖</span>' : ''}
             </div>
-            <div class="compact-snippet">${escapeHtml(r.text || '')}</div>
+            <div class="compact-snippet">${escapeHtml(r.text || '[No text content]')}</div>
           </div>
         </div>
 
@@ -663,51 +883,53 @@
   function setupEventListeners() {
     // Search Input
     let searchDebounceTimer;
-    searchInput.addEventListener('input', (e) => {
+    searchInput?.addEventListener('input', (e) => {
       clearTimeout(searchDebounceTimer);
       searchQuery = e.target.value;
-      searchClearBtn.style.display = searchQuery ? 'block' : 'none';
+      if (searchClearBtn) searchClearBtn.style.display = searchQuery ? 'block' : 'none';
       searchDebounceTimer = setTimeout(() => {
         applyFiltersAndRender();
       }, 120);
     });
 
-    searchClearBtn.addEventListener('click', () => {
-      searchInput.value = '';
+    searchClearBtn?.addEventListener('click', () => {
+      if (searchInput) {
+        searchInput.value = '';
+        searchInput.focus();
+      }
       searchQuery = '';
-      searchClearBtn.style.display = 'none';
+      if (searchClearBtn) searchClearBtn.style.display = 'none';
       applyFiltersAndRender();
-      searchInput.focus();
     });
 
     // Keyboard shortcut: '/' focuses search
     window.addEventListener('keydown', (e) => {
       if (e.key === '/' && document.activeElement !== searchInput) {
         e.preventDefault();
-        searchInput.focus();
-        searchInput.select();
+        searchInput?.focus();
+        searchInput?.select();
       } else if (e.key === 'Escape' && document.activeElement === searchInput) {
-        searchInput.blur();
+        searchInput?.blur();
       }
     });
 
     // Scope Buttons
-    scopeSyncedBtn.addEventListener('click', () => {
+    scopeSyncedBtn?.addEventListener('click', () => {
       currentScope = 'synced';
       scopeSyncedBtn.classList.add('active');
-      scopeAllBtn.classList.remove('active');
+      scopeAllBtn?.classList.remove('active');
       applyFiltersAndRender();
     });
 
-    scopeAllBtn.addEventListener('click', () => {
+    scopeAllBtn?.addEventListener('click', () => {
       currentScope = 'all';
       scopeAllBtn.classList.add('active');
-      scopeSyncedBtn.classList.remove('active');
+      scopeSyncedBtn?.classList.remove('active');
       applyFiltersAndRender();
     });
 
     // Category Pills
-    categoriesBar.addEventListener('click', (e) => {
+    categoriesBar?.addEventListener('click', (e) => {
       const btn = e.target.closest('.category-pill');
       if (!btn) return;
       document.querySelectorAll('.category-pill').forEach(b => b.classList.remove('active'));
@@ -717,100 +939,113 @@
     });
 
     // Author Select
-    authorSelect.addEventListener('change', (e) => {
+    authorSelect?.addEventListener('change', (e) => {
       selectedAuthor = e.target.value;
       applyFiltersAndRender();
     });
 
     // Checkbox Filters
-    filterBookmarks.addEventListener('change', (e) => {
+    filterBookmarks?.addEventListener('change', (e) => {
       bookmarksOnly = e.target.checked;
       applyFiltersAndRender();
     });
 
-    filterLinks.addEventListener('change', (e) => {
+    filterLinks?.addEventListener('change', (e) => {
       linksOnly = e.target.checked;
       applyFiltersAndRender();
     });
 
-    filterMedia.addEventListener('change', (e) => {
+    filterMedia?.addEventListener('change', (e) => {
       mediaOnly = e.target.checked;
       applyFiltersAndRender();
     });
 
     // Sort Dropdown
-    sortSelect.addEventListener('change', (e) => {
+    sortSelect?.addEventListener('change', (e) => {
       sortBy = e.target.value;
       applyFiltersAndRender();
     });
 
     // View Mode Buttons
-    viewCardsBtn.addEventListener('click', () => {
+    viewCardsBtn?.addEventListener('click', () => {
       viewMode = 'cards';
       viewCardsBtn.classList.add('active');
-      viewCompactBtn.classList.remove('active');
+      viewCompactBtn?.classList.remove('active');
       renderCurrentPage();
     });
 
-    viewCompactBtn.addEventListener('click', () => {
+    viewCompactBtn?.addEventListener('click', () => {
       viewMode = 'compact';
       viewCompactBtn.classList.add('active');
-      viewCardsBtn.classList.remove('active');
+      viewCardsBtn?.classList.remove('active');
       renderCurrentPage();
     });
 
     // Font Size Buttons
-    fontSmBtn.addEventListener('click', () => {
+    fontSmBtn?.addEventListener('click', () => {
       document.body.className = 'font-sm';
       fontSmBtn.classList.add('active');
-      fontMdBtn.classList.remove('active');
-      fontLgBtn.classList.remove('active');
+      fontMdBtn?.classList.remove('active');
+      fontLgBtn?.classList.remove('active');
     });
 
-    fontMdBtn.addEventListener('click', () => {
+    fontMdBtn?.addEventListener('click', () => {
       document.body.className = 'font-md';
-      fontSmBtn.classList.remove('active');
+      fontSmBtn?.classList.remove('active');
       fontMdBtn.classList.add('active');
-      fontLgBtn.classList.remove('active');
+      fontLgBtn?.classList.remove('active');
     });
 
-    fontLgBtn.addEventListener('click', () => {
+    fontLgBtn?.addEventListener('click', () => {
       document.body.className = 'font-lg';
-      fontSmBtn.classList.remove('active');
-      fontMdBtn.classList.remove('active');
+      fontSmBtn?.classList.remove('active');
+      fontMdBtn?.classList.remove('active');
       fontLgBtn.classList.add('active');
     });
 
     // Reset Filters
     function resetAllFilters() {
       searchQuery = '';
-      searchInput.value = '';
-      searchClearBtn.style.display = 'none';
+      if (searchInput) searchInput.value = '';
+      if (searchClearBtn) searchClearBtn.style.display = 'none';
       selectedCategory = 'all';
       document.querySelectorAll('.category-pill').forEach(b => {
         b.classList.toggle('active', b.getAttribute('data-cat') === 'all');
       });
       selectedAuthor = '';
-      authorSelect.value = '';
+      if (authorSelect) authorSelect.value = '';
       bookmarksOnly = false;
-      filterBookmarks.checked = false;
+      if (filterBookmarks) filterBookmarks.checked = false;
       linksOnly = false;
-      filterLinks.checked = false;
+      if (filterLinks) filterLinks.checked = false;
       mediaOnly = false;
-      filterMedia.checked = false;
-      sortBy = 'latest_synced';
-      sortSelect.value = 'latest_synced';
-      currentScope = 'synced';
-      scopeSyncedBtn.classList.add('active');
-      scopeAllBtn.classList.remove('active');
+      if (filterMedia) filterMedia.checked = false;
+      sortBy = 'latest_date';
+      if (sortSelect) sortSelect.value = 'latest_date';
+      currentScope = 'all';
+      if (scopeAllBtn) scopeAllBtn.classList.add('active');
+      if (scopeSyncedBtn) scopeSyncedBtn.classList.remove('active');
       applyFiltersAndRender();
     }
 
     if (btnResetFilters) btnResetFilters.addEventListener('click', resetAllFilters);
     if (btnEmptyClearFilters) btnEmptyClearFilters.addEventListener('click', resetAllFilters);
 
+    // Sync from Cloud DB
+    if (btnSyncFromDb) {
+      btnSyncFromDb.addEventListener('click', () => {
+        fetchFromCloudDB({ silent: false });
+      });
+    }
+
+    if (btnEmptySyncDb) {
+      btnEmptySyncDb.addEventListener('click', () => {
+        fetchFromCloudDB({ silent: false });
+      });
+    }
+
     // Load More Button
-    btnLoadMore.addEventListener('click', () => {
+    btnLoadMore?.addEventListener('click', () => {
       currentPage++;
       renderCurrentPage();
     });
@@ -828,45 +1063,60 @@
       (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     applyTheme(savedTheme);
 
-    btnThemeToggle.addEventListener('click', () => {
+    btnThemeToggle?.addEventListener('click', () => {
       const current = document.documentElement.getAttribute('data-theme');
       applyTheme(current === 'dark' ? 'light' : 'dark');
     });
 
     // Open / Load JSON File
-    btnLoadJson.addEventListener('click', () => {
-      localFileInput.click();
+    btnLoadJson?.addEventListener('click', () => {
+      localFileInput?.click();
     });
 
     if (btnEmptyLoadJson) {
       btnEmptyLoadJson.addEventListener('click', () => {
-        localFileInput.click();
+        localFileInput?.click();
       });
     }
 
-    localFileInput.addEventListener('change', (e) => {
+    localFileInput?.addEventListener('change', (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = (event) => {
         try {
           const parsed = JSON.parse(event.target?.result);
-          let records = [];
+          let rawList = [];
           if (Array.isArray(parsed)) {
-            records = parsed;
+            rawList = parsed;
           } else if (parsed && typeof parsed === 'object') {
-            records = parsed.records || parsed.bookmarks || parsed.tweets || parsed.items || [];
+            rawList = parsed.records || parsed.bookmarks || parsed.tweets || parsed.items || [];
           }
-          if (records.length === 0) {
+          if (rawList.length === 0) {
             showToast('No records found in this JSON file', 4000);
             return;
           }
-          allRecords = records;
-          syncedIds = new Set(allRecords.filter(r => r.syncedAt).map(r => r.id));
+
+          const map = new Map();
+          allRecords.forEach(r => map.set(r.id, r));
+
+          let newLoaded = 0;
+          rawList.forEach(item => {
+            const norm = normalizeRecord(item);
+            if (norm) {
+              if (!map.has(norm.id)) newLoaded++;
+              map.set(norm.id, norm);
+              if (norm.syncedAt) syncedIds.add(norm.id);
+            }
+          });
+
+          allRecords = Array.from(map.values());
           onDataLoaded();
-          showToast(`Successfully loaded ${records.length} records from JSON!`, 3500);
+          showToast(`Successfully loaded ${rawList.length} records (${newLoaded} new)!`, 3500);
+
           try {
-            localStorage.setItem('soro_history_local_records', JSON.stringify(records));
+            localStorage.setItem('soro_history_local_records', JSON.stringify(allRecords));
+            localStorage.setItem('soro_history_json', JSON.stringify(allRecords));
           } catch {}
         } catch (err) {
           showToast('Failed to parse JSON: ' + err.message, 4000);
@@ -889,12 +1139,20 @@
         reader.onload = (event) => {
           try {
             const parsed = JSON.parse(event.target?.result);
-            let records = Array.isArray(parsed) ? parsed : (parsed.records || parsed.items || []);
-            if (records.length > 0) {
-              allRecords = records;
-              syncedIds = new Set(allRecords.filter(r => r.syncedAt).map(r => r.id));
+            let rawList = Array.isArray(parsed) ? parsed : (parsed.records || parsed.items || []);
+            if (rawList.length > 0) {
+              const map = new Map();
+              allRecords.forEach(r => map.set(r.id, r));
+              rawList.forEach(item => {
+                const norm = normalizeRecord(item);
+                if (norm) {
+                  map.set(norm.id, norm);
+                  if (norm.syncedAt) syncedIds.add(norm.id);
+                }
+              });
+              allRecords = Array.from(map.values());
               onDataLoaded();
-              showToast(`Imported ${records.length} records from ${file.name}!`, 3500);
+              showToast(`Imported ${rawList.length} records from ${file.name}!`, 3500);
             }
           } catch {}
         };
@@ -903,7 +1161,7 @@
     });
 
     // Export JSON
-    btnExportJson.addEventListener('click', () => {
+    btnExportJson?.addEventListener('click', () => {
       const exportList = currentScope === 'synced' ? allRecords.filter(isRecordSynced) : allRecords;
       const jsonStr = JSON.stringify(exportList, null, 2);
       const blob = new Blob([jsonStr], { type: 'application/json' });
@@ -919,10 +1177,10 @@
     });
 
     // Reload Storage
-    btnReloadStorage.addEventListener('click', () => {
-      btnReloadStorage.textContent = '⏳ Reloading...';
+    btnReloadStorage?.addEventListener('click', () => {
+      if (btnReloadStorage) btnReloadStorage.textContent = '⏳ Reloading...';
       loadLocalData(() => {
-        btnReloadStorage.innerHTML = '<span>🔄</span><span>Reload</span>';
+        if (btnReloadStorage) btnReloadStorage.innerHTML = '<span>🔄</span><span>Reload</span>';
         showToast('Storage reloaded successfully!');
       });
     });

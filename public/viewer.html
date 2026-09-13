@@ -34,6 +34,12 @@
           <span id="header-count-text">0 Synced Records</span>
         </div>
 
+        <!-- Sync from Cloud DB -->
+        <button id="btn-sync-from-db" class="btn" style="border-color: #059669; background: #064e3b; color: #a7f3d0; font-weight: 700;" title="Fetch and sync records from the cloud database into your local JSON storage">
+          <span>☁️</span>
+          <span>Sync from DB</span>
+        </button>
+
         <!-- Open / Load JSON File -->
         <button id="btn-load-json" class="btn" title="Load an exported SoroTrack JSON or backup archive">
           <span>📂</span>
@@ -195,7 +201,8 @@
       <p class="empty-desc" id="empty-state-desc">
         No local records match the selected search and filter criteria. Try clearing filters or load a SoroTrack JSON archive directly.
       </p>
-      <div style="display: flex; gap: 8px; margin-top: 8px;">
+      <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; justify-content: center;">
+        <button id="btn-empty-sync-db" class="btn" style="border-color: #059669; background: #064e3b; color: #a7f3d0; font-weight: 700;">☁️ Sync from Cloud DB</button>
         <button id="btn-empty-clear-filters" class="btn btn-primary">Clear Filters</button>
         <button id="btn-empty-load-json" class="btn">Browse JSON File...</button>
       </div>

@@ -362,6 +362,84 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  const syncFromDbBtn = document.getElementById('sync-from-db-btn');
+  syncFromDbBtn?.addEventListener('click', async () => {
+    if (exportStatusMsg) exportStatusMsg.textContent = 'Syncing from Cloud DB...';
+    if (syncFromDbBtn) {
+      syncFromDbBtn.textContent = '⏳ Syncing...';
+      syncFromDbBtn.disabled = true;
+    }
+
+    browserAPI.storage.local.get(['dashboardUrl', 'authToken', 'soro_history_json', 'soro_synced_ids'], async (res) => {
+      const baseUrl = (res?.dashboardUrl || dashboardUrlInput?.value || 'http://localhost:3000').replace(/\/+$/, '');
+      const token = res?.authToken || authTokenInput?.value || '';
+
+      try {
+        const response = await fetch(`${baseUrl}/api/export/json`, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server returned HTTP ${response.status}`);
+        }
+
+        const incoming = await response.json();
+        const rawList = Array.isArray(incoming) ? incoming : (incoming.records || incoming.items || []);
+
+        if (!Array.isArray(rawList) || rawList.length === 0) {
+          if (exportStatusMsg) exportStatusMsg.textContent = 'Cloud DB has 0 archived records.';
+          return;
+        }
+
+        const existingRecords = res?.soro_history_json || [];
+        const syncedSet = new Set(res?.soro_synced_ids || []);
+        const map = new Map();
+        existingRecords.forEach(r => map.set(r.id, r));
+
+        let newCount = 0;
+        const syncTimestamp = new Date().toISOString();
+
+        rawList.forEach(item => {
+          const norm = normalizeImportedRecords([item])[0];
+          if (norm) {
+            norm.isSynced = true;
+            if (!norm.syncedAt) norm.syncedAt = norm.scannedAt || norm.createdAt || syncTimestamp;
+            if (!map.has(norm.id)) newCount++;
+            map.set(norm.id, norm);
+            syncedSet.add(norm.id);
+          }
+        });
+
+        const mergedList = Array.from(map.values());
+        const updatedSyncedIds = Array.from(syncedSet);
+        const remainingUnsynced = Math.max(0, mergedList.length - updatedSyncedIds.length);
+
+        browserAPI.storage.local.set({
+          soro_history_json: mergedList,
+          soro_synced_ids: updatedSyncedIds,
+          soro_history_count: mergedList.length,
+          soro_unsynced_count: remainingUnsynced,
+          soro_sync_status: 'online',
+          soro_last_sync_time: syncTimestamp
+        }, () => {
+          if (exportStatusMsg) {
+            exportStatusMsg.textContent = `✓ Synced ${rawList.length} records from Cloud DB (${newCount} new, ${mergedList.length} total local JSON)!`;
+            setTimeout(() => { exportStatusMsg.textContent = ''; }, 5000);
+          }
+        });
+      } catch (err) {
+        if (exportStatusMsg) {
+          exportStatusMsg.textContent = `Sync error: ${err.message}`;
+        }
+      } finally {
+        if (syncFromDbBtn) {
+          syncFromDbBtn.textContent = '☁️ Sync from Cloud DB';
+          syncFromDbBtn.disabled = false;
+        }
+      }
+    });
+  });
+
   const openLocalViewerBtn = document.getElementById('open-local-viewer-btn');
   openLocalViewerBtn?.addEventListener('click', () => {
     const viewerUrl = browserAPI.runtime.getURL('viewer.html');
