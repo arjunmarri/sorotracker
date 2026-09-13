@@ -41,18 +41,113 @@
           "type": "string",
           "description": "Timestamp when the extension scanned the record"
         },
+        "syncedAt": {
+          "type": "string",
+          "description": "Timestamp when the snippet was synced to SoroTrack database"
+        },
         "sourcePage": {
           "type": "string",
           "description": "URL of the page where the tweet was captured (e.g. x.com/i/history)"
         }
       },
       "required": ["id", "text", "scannedAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Registered user profile with role-based access for administrative operations.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique user ID (matches Firebase Auth UID)"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User display name"
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Avatar photo URL from Google Auth or custom"
+        },
+        "role": {
+          "type": "string",
+          "description": "User role: admin, editor, or viewer",
+          "enum": ["admin", "editor", "viewer"]
+        },
+        "status": {
+          "type": "string",
+          "description": "Account status: active or suspended",
+          "enum": ["active", "suspended"]
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp when the user account was registered"
+        },
+        "lastLoginAt": {
+          "type": "string",
+          "description": "ISO timestamp when the user last signed in"
+        }
+      },
+      "required": ["id", "email", "role"]
+    },
+    "SiteSettings": {
+      "title": "SiteSettings",
+      "description": "Global website configuration including branding name, tagline, theme, and footer content.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Settings identifier, typically 'site'"
+        },
+        "siteName": {
+          "type": "string",
+          "description": "Application display name"
+        },
+        "tagline": {
+          "type": "string",
+          "description": "Application header/hero tagline"
+        },
+        "theme": {
+          "type": "string",
+          "description": "Visual theme identifier",
+          "enum": ["warm-neutral", "editorial-slate", "midnight-dark", "emerald-archive", "minimal-light"]
+        },
+        "footerContent": {
+          "type": "string",
+          "description": "Custom text or description displayed in the footer"
+        },
+        "footerCopyright": {
+          "type": "string",
+          "description": "Copyright text or disclaimer"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp when configuration was last saved"
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "Email or ID of the admin who updated the settings"
+        }
+      },
+      "required": ["siteName", "theme"]
     }
   },
   "firestore": {
     "/history_records/{recordId}": {
       "schema": "HistoryRecord",
-      "description": "Collection storing archived posts, reading history, and external reference links pushed from the SoroTracker browser extension."
+      "description": "Collection storing archived posts, reading history, and external reference links pushed from the SoroTrack browser extension."
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Collection storing user accounts and roles managed by administrators."
+    },
+    "/settings/{settingId}": {
+      "schema": "SiteSettings",
+      "description": "Singleton or collection storing site name, tagline, theme, and footer content configuration."
     }
   }
 }

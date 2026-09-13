@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>SoroTracker Extension Settings</title>
+  <title>SoroTrack Extension Settings</title>
   <style>
     body {
       max-width: 560px;
@@ -70,25 +70,28 @@
   </style>
 </head>
 <body>
-  <h1>SoroTracker Extension Settings</h1>
+  <h1>SoroTrack Extension Settings</h1>
 
   <div class="form-group">
-    <label for="dashboardUrl">SoroTracker Service URL</label>
+    <label for="dashboardUrl">SoroTrack Service URL</label>
     <div class="desc">The live web endpoint where extracted bookmarks, posts, and links are sent.</div>
     <input type="text" id="dashboardUrl" placeholder="http://localhost:3000">
   </div>
 
   <div class="form-group">
     <label for="authToken">Sync Authentication Token</label>
-    <div class="desc">Security token required for authenticating remote calls into SoroTracker.</div>
+    <div class="desc">Security token required for authenticating remote calls into SoroTrack.</div>
     <input type="password" id="authToken" placeholder="sh_live_...">
   </div>
 
   <div class="form-group">
     <label class="checkbox-group">
-      <input type="checkbox" id="autoSync" checked>
-      <span>Auto-sync new items immediately while scrolling</span>
+      <input type="checkbox" id="autoSync">
+      <span>Auto-Sync to Database (Disabled by default to protect daily quota)</span>
     </label>
+    <div class="desc" style="margin-top: 4px; margin-left: 24px;">
+      By default, all bookmarks are saved into your local JSON archive to protect against Firestore's 20,000 daily write limit. When you visit bookmarks or scan posts, the extension prompts you to manually sync in 1 single batch query whenever you are ready.
+    </div>
   </div>
 
   <div class="form-group">
@@ -100,6 +103,26 @@
     <button id="save-btn">Save Settings</button>
     <button id="test-btn" style="background: #1e293b; border: 1px solid #334155;">Test Connection</button>
     <span id="status-msg"></span>
+  </div>
+
+  <div style="margin-top: 32px; padding-top: 20px; border-top: 1px solid #1e293b;">
+    <label style="color: #38bdf8; font-size: 14px; margin-bottom: 4px;">Local JSON Storage, Import & Export</label>
+    <div class="desc">
+      All bookmarks and history items scanned by this extension are preserved in your browser's local JSON storage (<code style="color: #cbd5e1; background: #1e293b; padding: 2px 4px; border-radius: 4px;">chrome.storage.local</code>). You can export your archive as a JSON file or directly import any JSON archive into the extension at any time.
+    </div>
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 12px;">
+      <button id="import-local-json-btn" type="button" style="background: #4338ca; border: 1px solid #6366f1; color: white;">
+        📤 Import JSON Archive (.json)
+      </button>
+      <input type="file" id="options-import-json-input" accept=".json,application/json" style="display: none;">
+      <button id="export-local-json-btn" type="button" style="background: #0f766e; border: 1px solid #14b8a6; color: white;">
+        📥 Export Local JSON Archive (.json)
+      </button>
+      <button id="open-local-viewer-btn" type="button" style="background: #064e3b; border: 1px solid #059669; color: #a7f3d0; font-weight: 700;">
+        🪟 View Synced Data (New Window)
+      </button>
+      <span id="export-status-msg" style="font-size: 13px; color: #2dd4bf;"></span>
+    </div>
   </div>
 
   <script src="options.js"></script>

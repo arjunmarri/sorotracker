@@ -4,5 +4,14 @@ service cloud.firestore {
     match /history_records/{recordId} {
       allow read, write: if true;
     }
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+    match /settings/{settingId} {
+      allow read, write: if true;
+    }
+    match /test/{docId} {
+      allow read, write: if true;
+    }
   }
 }

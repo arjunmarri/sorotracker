@@ -1,24 +1,22 @@
 {
   "manifest_version": 3,
-  "name": "SoroTracker Extension",
+  "name": "SoroTrack Extension",
   "version": "1.0.0",
-  "description": "Extracts tweets, authors, and external reference links from x.com/i/history and syncs to your personal SoroTracker archive dashboard.",
+  "description": "Preserves and extracts tweets, authors, bookmarks, and references on X (x.com), automatically adding snippets to SoroTrack when bookmarked or viewed.",
   "permissions": [
     "storage",
     "activeTab"
   ],
   "host_permissions": [
     "*://x.com/*",
-    "*://*.x.com/*",
     "*://twitter.com/*",
-    "*://*.twitter.com/*",
     "http://localhost:3000/*",
     "http://127.0.0.1:3000/*",
     "https://*/*"
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "SoroTracker Extension",
+    "default_title": "SoroTrack Extension",
     "default_icon": {
       "16": "icon16.png",
       "48": "icon48.png",
@@ -28,12 +26,8 @@
   "content_scripts": [
     {
       "matches": [
-        "*://x.com/i/history*",
-        "*://x.com/i/bookmarks*",
-        "*://x.com/*/status/*",
-        "*://twitter.com/i/history*",
-        "*://twitter.com/i/bookmarks*",
-        "*://twitter.com/*/status/*"
+        "*://x.com/*",
+        "*://twitter.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"
@@ -48,7 +42,7 @@
   },
   "browser_specific_settings": {
     "gecko": {
-      "id": "sorotracker@dashboard.local",
+      "id": "sorotrack@dashboard.local",
       "strict_min_version": "109.0"
     }
   },
@@ -56,5 +50,11 @@
     "16": "icon16.png",
     "48": "icon48.png",
     "128": "icon128.png"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["viewer.html", "viewer.js", "viewer.css", "icon16.png", "icon48.png", "icon128.png"],
+      "matches": ["*://*/*"]
+    }
+  ]
 }

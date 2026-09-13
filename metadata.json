@@ -1,5 +1,5 @@
 {
-  "name": "SoroTracker",
+  "name": "SoroTrack",
   "description": "Track your browsing history. and categorize the topics that interested you. This will help me discover content trends and organize my reading list effectively. It should also provide a weekly summary of time spent on specific domains.",
   "requestFramePermissions": [],
   "majorCapabilities": [

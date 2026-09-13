@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
+  initializeFirestore,
   getFirestore, 
   collection, 
   doc, 
@@ -115,7 +116,7 @@ export function getFirestoreQuotaStatus() {
     isQuotaExhausted,
     quotaExhaustedTimestamp,
     quotaResetNotice: isQuotaExhausted
-      ? 'Firestore daily write quota reached (free tier limit: 20,000 writes/day). Quota will automatically reset tomorrow. SoroTracker local storage is safely safeguarding all records without data loss.'
+      ? 'Firestore daily write quota reached (free tier limit: 20,000 writes/day). Quota will automatically reset tomorrow. SoroTrack local storage is safely safeguarding all records without data loss.'
       : null,
     upgradeUrl: 'https://console.firebase.google.com/project/backend-prowater/firestore/databases/ai-studio-sorohistory-65bf2fc3-f6f5-41f4-8a17-64f5ce5608ca/data?openUpgradeDialog=true',
     pricingUrl: 'https://firebase.google.com/pricing#cloud-firestore',
@@ -140,12 +141,18 @@ export function getFirestoreDB(): Firestore | null {
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
     const app = getApps().length === 0 ? initializeApp(config) : getApp();
-    firestoreInstance = getFirestore(app, config.firestoreDatabaseId || undefined);
+    try {
+      firestoreInstance = initializeFirestore(app, {
+        experimentalForceLongPolling: true,
+      }, config.firestoreDatabaseId || undefined);
+    } catch {
+      firestoreInstance = getFirestore(app, config.firestoreDatabaseId || undefined);
+    }
     isFirestoreAvailable = true;
     console.log(`[Firestore] Connected to GCP collection "${COLLECTION_NAME}" on database: ${config.firestoreDatabaseId || 'default'}`);
     return firestoreInstance;
-  } catch (err) {
-    console.error('[Firestore] Initialization error:', err);
+  } catch (err: any) {
+    console.warn('[Firestore] Initialization notice:', err?.message || err);
     return null;
   }
 }
@@ -175,7 +182,7 @@ export async function fetchRecordsFromFirestore(): Promise<XHistoryRecord[]> {
     if (isResourceExhaustedError(err)) {
       await handleQuotaExhausted(err, 'fetchRecords');
     } else {
-      console.error('[Firestore] Failed to fetch documents from GCP collection:', err);
+      console.warn('[Firestore] Notice fetching documents from GCP collection:', err?.message || err);
     }
     return [];
   }
@@ -223,7 +230,7 @@ export async function saveRecordsToFirestore(records: XHistoryRecord[]): Promise
     if (isResourceExhaustedError(err)) {
       await handleQuotaExhausted(err, 'saveRecords');
     } else {
-      console.error('[Firestore] Failed to persist records to GCP collection:', err);
+      console.warn('[Firestore] Notice persisting records to GCP collection:', err?.message || err);
     }
     return 0;
   }
@@ -248,7 +255,7 @@ export async function deleteRecordFromFirestore(id: string): Promise<boolean> {
     if (isResourceExhaustedError(err)) {
       await handleQuotaExhausted(err, `deleteRecord(${id})`);
     } else {
-      console.error(`[Firestore] Error deleting record ${id}:`, err);
+      console.warn(`[Firestore] Notice deleting record ${id}:`, err?.message || err);
     }
     return false;
   }
@@ -280,7 +287,7 @@ export async function clearFirestoreCollection(): Promise<boolean> {
     if (isResourceExhaustedError(err)) {
       await handleQuotaExhausted(err, 'clearCollection');
     } else {
-      console.error('[Firestore] Error clearing collection:', err);
+      console.warn('[Firestore] Notice clearing collection:', err?.message || err);
     }
     return false;
   }

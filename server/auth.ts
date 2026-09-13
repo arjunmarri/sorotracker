@@ -58,12 +58,12 @@ export function getSyncAuthToken(): string {
 
   try {
     fs.writeFileSync(AUTH_FILE, JSON.stringify(config, null, 2), 'utf-8');
-  } catch (e) {
-    console.error('[Auth] Failed to write auth config to disk:', e);
+  } catch (e: any) {
+    console.warn('[Auth] Notice writing auth config to disk:', e?.message || e);
   }
 
   cachedToken = token;
-  console.log('[Auth] Generated new SoroTracker remote sync token.');
+  console.log('[Auth] Generated new SoroTrack remote sync token.');
   return cachedToken;
 }
 
@@ -121,7 +121,7 @@ export function requireSyncAuth(req: Request, res: Response, next: NextFunction)
   }
 
   return res.status(401).json({
-    error: 'Unauthorized: Valid SoroTracker remote sync authentication token is required.',
+    error: 'Unauthorized: Valid SoroTrack remote sync authentication token is required.',
     code: 'AUTH_REQUIRED',
     hint: 'Provide Authorization: Bearer <token> or x-api-key header.'
   });

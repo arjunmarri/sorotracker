@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>SoroTracker Extension</title>
+  <title>SoroTrack Extension</title>
   <style>
     body {
       width: 300px;
@@ -124,29 +124,110 @@
   <div class="header">
     <div class="logo-badge">X</div>
     <div>
-      <h2>SoroTracker Extension</h2>
-      <div class="subtitle">Extracts & syncs bookmarks & history</div>
+      <h2>SoroTrack Extension</h2>
+      <div class="subtitle">Extracts & saves to JSON (Manual Sync)</div>
     </div>
   </div>
 
   <div class="status-card">
     <div class="status-row">
+      <span>Sync Mode:</span>
+      <span id="sync-status" class="status-val" style="color: #10b981;">Manual Sync</span>
+    </div>
+    <div class="status-row">
+      <span>JSON Storage:</span>
+      <span id="buffered-count" class="status-val">0 saved locally</span>
+    </div>
+    <div class="status-row">
+      <span>Total Scanned:</span>
+      <span id="scanned-count" class="status-val">0</span>
+    </div>
+    <div class="status-row">
       <span>Page:</span>
       <span id="tab-status" class="status-val">Detecting...</span>
     </div>
-    <div class="status-row">
-      <span>Scanned Items:</span>
-      <span id="scanned-count" class="status-val">0</span>
-    </div>
   </div>
 
+  <!-- Anon Mode Toggle Card -->
+  <div style="background: #182234; border: 1px solid #2d3e58; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span style="font-size: 13px;">🕶️</span>
+      <div>
+        <div style="font-size: 11.5px; font-weight: 700; color: #f1f5f9;">Anon Mode</div>
+        <div id="anon-mode-subtext" style="font-size: 10px; color: #94a3b8;">No snippets are stored</div>
+      </div>
+    </div>
+    <button id="anon-mode-btn" class="btn" style="width: auto; margin-bottom: 0; padding: 4px 10px; font-size: 11px; font-weight: 700; border-radius: 12px; background: #334155; color: #cbd5e1; border: 1px solid #475569;">OFF</button>
+  </div>
+
+  <!-- Auto-Add on Bookmark Feature Banner -->
+  <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 7px 10px; margin-bottom: 10px; font-size: 10.5px; color: #fde68a; display: flex; align-items: center; gap: 7px; line-height: 1.35;">
+    <span style="font-size: 13px; shrink-0;">🔖</span>
+    <span><strong>Auto-Add on Bookmark:</strong> Click bookmark on any tweet across all of X to instantly capture &amp; sync to SoroTrack.</span>
+  </div>
+
+  <!-- Prompt card when unsynced bookmarks are waiting in JSON -->
+  <div id="manual-sync-prompt-card" style="display: none; background: #182234; border: 1px solid #2563eb; border-radius: 8px; padding: 10px; margin-bottom: 12px; font-size: 11px;">
+    <div style="font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 4px; margin-bottom: 4px;">
+      <span>📁</span>
+      <span>Bookmarks Saved in Local JSON</span>
+    </div>
+    <div id="manual-prompt-text" style="color: #cbd5e1; margin-bottom: 8px; line-height: 1.35;">
+      Bookmarks are stored locally in JSON. Sync is manual and never pushes to Firestore until you initiate it.
+    </div>
+    <button id="prompt-sync-btn" class="btn btn-primary" style="background: #059669; border-color: #047857; margin-bottom: 6px;">Manually Sync to Database</button>
+    <button id="prompt-download-btn" class="btn btn-secondary" style="margin-bottom: 0;">Export JSON Archive</button>
+  </div>
+
+  <div id="offline-banner" style="display: none; background: #271c10; border: 1px solid #78350f; border-radius: 6px; padding: 8px; font-size: 11px; color: #fcd34d; margin-bottom: 12px; line-height: 1.4;">
+    <strong>▲ Offline Mode</strong><br>
+    Data is saved safely in JSON. Firestore auto-sync is disabled to protect database write quota.
+  </div>
+
+  <!-- Feedback notification banner for Import / Sync actions -->
+  <div id="import-feedback-banner" style="display: none; border-radius: 6px; padding: 7px 9px; font-size: 11px; margin-bottom: 10px; line-height: 1.35;"></div>
+
   <button id="scan-btn" class="btn btn-primary">Scan Current Viewport</button>
-  <button id="sync-btn" class="btn btn-secondary">Sync to SoroTracker</button>
-  <button id="export-json-btn" class="btn btn-secondary">Export JSON Archive</button>
-  <button id="open-x-btn" class="btn btn-secondary">Open x.com/i/history</button>
+  <button id="audit-history-btn" class="btn btn-secondary" style="border-color: #3b82f6; color: #93c5fd;">Audit History (JSON Check)</button>
+  <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+    <button id="auto-scroll-btn" class="btn btn-secondary" style="margin-bottom: 0; flex: 2.2; border-color: #f59e0b; color: #fbbf24;">⚡ Auto-Scroll</button>
+    <select id="scroll-speed-select" style="flex: 1.8; background: #161b22; color: #e6edf3; border: 1px solid #30363d; border-radius: 6px; font-size: 11px; padding: 0 4px;" title="Auto-scroll speed">
+      <option value="turbo" selected>Turbo (2x)</option>
+      <option value="ultra">Ultra (3x)</option>
+      <option value="fast">Fast (1x)</option>
+    </select>
+  </div>
+  <button id="sync-btn" class="btn btn-secondary">Manually Sync to SoroTrack</button>
+
+  <!-- View Local Synced Data in New Window Button -->
+  <button id="open-local-viewer-btn" class="btn btn-secondary" style="border-color: #059669; background: #064e3b; color: #a7f3d0; margin-bottom: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Open standalone local offline viewer in a new window">
+    <span>🪟</span>
+    <span>View Synced Data (New Window)</span>
+  </button>
+
+  <!-- Local JSON Storage Operations: Import and Export -->
+  <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+    <button id="import-json-btn" class="btn btn-secondary" style="margin-bottom: 0; flex: 1; border-color: #6366f1; background: #1e1e38; color: #c7d2fe;" title="Import tweets directly from a JSON file">
+      📤 Import JSON
+    </button>
+    <button id="export-json-btn" class="btn btn-secondary" style="margin-bottom: 0; flex: 1; border-color: #0f766e; background: #112a2c; color: #5eead4;" title="Export local JSON storage archive">
+      📥 Export JSON
+    </button>
+  </div>
+  <input type="file" id="popup-import-json-input" accept=".json,application/json" style="display: none;">
+
+  <!-- Clear Current Session Button -->
+  <button id="clear-session-btn" class="btn btn-secondary" style="border-color: #991b1b; background: #261114; color: #fca5a5; margin-bottom: 8px;" title="Clear all snippets stored in the current session">
+    🗑️ Clear Current Session
+  </button>
+
+  <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+    <button id="open-x-btn" class="btn btn-secondary" style="margin-bottom: 0; flex: 1;">Open /i/history</button>
+    <button id="open-history-likes-btn" class="btn btn-secondary" style="margin-bottom: 0; flex: 1;">Open /i/history/likes</button>
+  </div>
 
   <div class="field">
-    <label for="dash-url">SoroTracker Service URL:</label>
+    <label for="dash-url">SoroTrack Service URL:</label>
     <input type="text" id="dash-url" value="http://localhost:3000">
   </div>
   <div class="field">

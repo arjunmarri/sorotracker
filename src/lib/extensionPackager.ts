@@ -65,7 +65,7 @@ export async function packageExtensionZip(
         };
         manifest.browser_specific_settings = {
           gecko: {
-            id: 'sorotracker@dashboard.local',
+            id: 'sorotrack@dashboard.local',
             strict_min_version: '109.0'
           }
         };

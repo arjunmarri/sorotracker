@@ -1,5 +1,5 @@
 /**
- * SoroTracker Background Script / Service Worker
+ * SoroTrack Background Script / Service Worker
  * Compatible with Firefox & Chrome
  * Executes remote network sync bypassing webpage CSP
  */
@@ -9,18 +9,18 @@ const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
 const DEFAULT_CONFIG = {
   dashboardUrl: 'http://localhost:3000',
   authToken: '',
-  autoSync: true,
+  autoSync: false, // Auto-sync disabled to prevent exhausting Firestore daily collection write limits
   syncIntervalSec: 5
 };
 
 // Listen for installation
 browserAPI.runtime.onInstalled.addListener(() => {
-  console.log('[SoroTracker] Extension successfully installed.');
+  console.log('[SoroTrack] Extension successfully installed.');
   browserAPI.storage.local.get(['dashboardUrl', 'authToken', 'autoSync', 'syncIntervalSec'], (res) => {
     const toSet = {};
     if (!res || !res.dashboardUrl) toSet.dashboardUrl = DEFAULT_CONFIG.dashboardUrl;
     if (!res || res.authToken === undefined) toSet.authToken = DEFAULT_CONFIG.authToken;
-    if (!res || typeof res.autoSync !== 'boolean') toSet.autoSync = DEFAULT_CONFIG.autoSync;
+    toSet.autoSync = false;
     if (!res || !res.syncIntervalSec) toSet.syncIntervalSec = DEFAULT_CONFIG.syncIntervalSec;
 
     if (Object.keys(toSet).length > 0) {
@@ -34,6 +34,28 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'PING') {
     sendResponse({ status: 'PONG', time: Date.now() });
     return false;
+  }
+
+  // Open Standalone Local Offline Viewer in new browser window
+  if (request.type === 'OPEN_LOCAL_VIEWER') {
+    const viewerUrl = browserAPI.runtime.getURL('viewer.html');
+    if (browserAPI.windows && browserAPI.windows.create) {
+      browserAPI.windows.create({
+        url: viewerUrl,
+        type: 'normal',
+        width: 1320,
+        height: 880
+      }, (win) => {
+        sendResponse({ success: true, windowId: win?.id });
+      });
+    } else if (browserAPI.tabs && browserAPI.tabs.create) {
+      browserAPI.tabs.create({ url: viewerUrl }, (tab) => {
+        sendResponse({ success: true, tabId: tab?.id });
+      });
+    } else {
+      sendResponse({ success: false, url: viewerUrl });
+    }
+    return true;
   }
 
   // Relay to active tab
@@ -50,9 +72,10 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  // Execute remote sync call via background script (bypasses webpage CSP on x.com)
+    // Execute remote sync call via background script (bypasses webpage CSP on x.com)
   if (request.type === 'SYNC_RECORDS') {
     const { endpoint, authToken, records, source, timestamp } = request.payload || {};
+    const syncTimestamp = timestamp || new Date().toISOString();
     
     // Retrieve stored authToken and dashboardUrl if not passed directly
     browserAPI.storage.local.get(['dashboardUrl', 'authToken'], (stored) => {
@@ -70,13 +93,18 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
         headers['x-api-key'] = token;
       }
 
+      const recordsToSend = (records || []).map(r => ({
+        ...r,
+        syncedAt: r.syncedAt || syncTimestamp
+      }));
+
       fetch(syncEndpoint, {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          records: records || [],
+          records: recordsToSend,
           source: source || 'extension',
-          timestamp: timestamp || new Date().toISOString()
+          timestamp: syncTimestamp
         })
       })
       .then(async (res) => {
@@ -92,6 +120,10 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
+          browserAPI.storage.local.set({
+            soro_sync_status: 'offline',
+            soro_last_sync_error: `HTTP ${res.status}: ${errText}`
+          });
           sendResponse({
             success: false,
             status: res.status,
@@ -101,14 +133,49 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
 
         const data = await res.json();
+        const isQuotaExhausted = Boolean(data?.isQuotaExhausted);
+        
+        // Update syncedAt timestamp in extension local JSON storage
+        browserAPI.storage.local.get(['soro_history_json', 'soro_synced_ids'], (storeRes) => {
+          const updatePayload = {
+            soro_sync_status: isQuotaExhausted ? 'offline' : 'online',
+            soro_quota_exhausted: isQuotaExhausted,
+            soro_last_sync_time: syncTimestamp
+          };
+
+          if (Array.isArray(recordsToSend) && recordsToSend.length > 0) {
+            const syncedIdsSet = new Set(storeRes?.soro_synced_ids || []);
+            recordsToSend.forEach(r => syncedIdsSet.add(r.id));
+            updatePayload.soro_synced_ids = Array.from(syncedIdsSet);
+
+            if (Array.isArray(storeRes?.soro_history_json)) {
+              const recordIdMap = new Map(recordsToSend.map(r => [r.id, r]));
+              storeRes.soro_history_json.forEach(item => {
+                if (recordIdMap.has(item.id)) {
+                  item.syncedAt = syncTimestamp;
+                }
+              });
+              updatePayload.soro_history_json = storeRes.soro_history_json;
+              updatePayload.soro_unsynced_count = Math.max(0, storeRes.soro_history_json.length - updatePayload.soro_synced_ids.length);
+            }
+          }
+
+          browserAPI.storage.local.set(updatePayload);
+        });
+
         sendResponse({
           success: true,
+          isQuotaExhausted,
           result: data,
           total: data.total || (records ? records.length : 0)
         });
       })
       .catch((err) => {
-        console.error('[SoroTracker Background] Sync network error:', err);
+        console.error('[SoroTrack Background] Sync network error:', err);
+        browserAPI.storage.local.set({
+          soro_sync_status: 'offline',
+          soro_last_sync_error: err.message || 'Connection failed'
+        });
         sendResponse({
           success: false,
           unreachable: true,

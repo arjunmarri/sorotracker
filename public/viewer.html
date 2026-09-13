@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SoroTrack — Local Offline Archive Viewer</title>
+  <link rel="icon" type="image/png" href="icon48.png">
+  <link rel="stylesheet" href="viewer.css">
+</head>
+<body class="font-md">
+
+  <!-- Header matching SoroTrack exactly -->
+  <header class="app-header">
+    <div class="header-inner">
+      <!-- Brand on Left -->
+      <div class="brand-section">
+        <div class="brand-logo-badge" title="SoroTrack Local Archive">
+          𝕏
+        </div>
+        <div class="brand-titles">
+          <div class="brand-row">
+            <h1 class="brand-title">SoroTrack</h1>
+            <span class="brand-badge">Local Offline Viewer</span>
+          </div>
+          <p class="brand-tagline">Source: Local JSON &bull; Zero Server Connections</p>
+        </div>
+      </div>
+
+      <!-- Actions on Right -->
+      <div class="header-actions">
+        <!-- Live Record Counter -->
+        <div id="stat-pill-container" class="stat-pill" title="Total synced snippets available in local storage">
+          <span class="stat-dot"></span>
+          <span id="header-count-text">0 Synced Records</span>
+        </div>
+
+        <!-- Open / Load JSON File -->
+        <button id="btn-load-json" class="btn" title="Load an exported SoroTrack JSON or backup archive">
+          <span>📂</span>
+          <span>Open JSON</span>
+        </button>
+        <input type="file" id="local-file-input" accept=".json,application/json" style="display: none;">
+
+        <!-- Export JSON Archive -->
+        <button id="btn-export-json" class="btn" title="Download the current records as JSON file">
+          <span>📥</span>
+          <span>Export JSON</span>
+        </button>
+
+        <!-- Refresh / Reload Storage -->
+        <button id="btn-reload-storage" class="btn" title="Reload from browser storage">
+          <span>🔄</span>
+          <span>Reload</span>
+        </button>
+
+        <!-- Theme Toggle -->
+        <button id="btn-theme-toggle" class="btn btn-icon-only" title="Toggle Light / Dark mode">
+          <span id="theme-icon">🌙</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Control Deck & Filters -->
+  <section class="controls-container">
+    <div class="controls-inner">
+      <!-- Search and Scope Row -->
+      <div class="search-row">
+        <!-- Search Field -->
+        <div class="search-wrapper">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input 
+            type="text" 
+            id="search-input" 
+            class="search-input" 
+            placeholder="Search synced snippets, authors, handles, tags, or reference links (Press '/' to focus)..." 
+            autocomplete="off"
+          >
+          <button id="search-clear-btn" class="search-clear" title="Clear search">✕</button>
+        </div>
+
+        <!-- Scope Switcher: Synced Records Only vs All Local -->
+        <div class="scope-toggle-group" title="Choose whether to view only synced data or all locally scanned items">
+          <button id="scope-synced-btn" class="scope-btn active">
+            ✓ Synced Only
+          </button>
+          <button id="scope-all-btn" class="scope-btn">
+            All Local Records
+          </button>
+        </div>
+      </div>
+
+      <!-- Categories Pills Bar -->
+      <div id="categories-bar" class="categories-bar">
+        <button class="category-pill active" data-cat="all">All Categories</button>
+        <button class="category-pill" data-cat="white_paper">White Papers & Research</button>
+        <button class="category-pill" data-cat="news_announcements">News & Announcements</button>
+        <button class="category-pill" data-cat="tutorials_guides">Tutorials & Guides</button>
+        <button class="category-pill" data-cat="cheat_sheets_lists">Cheat Sheets & Lists</button>
+        <button class="category-pill" data-cat="commentary_essays">Commentary & Essays</button>
+        <button class="category-pill" data-cat="project_demos">Project Demos</button>
+        <button class="category-pill" data-cat="memes_humour">Memes & Humour</button>
+        <button class="category-pill" data-cat="polemics_debate">Debates & Media</button>
+        <button class="category-pill" data-cat="creative_arts">Creative & Arts</button>
+        <button class="category-pill" data-cat="promotional_pitches_others">Promos & Others</button>
+      </div>
+
+      <!-- Secondary Filters & Sort Row -->
+      <div class="filters-row">
+        <div class="filters-left">
+          <!-- Author Dropdown -->
+          <select id="author-select" class="filter-select" title="Filter by author">
+            <option value="">All Authors</option>
+          </select>
+
+          <!-- Bookmarks Only -->
+          <label class="filter-checkbox-label" title="Show only bookmarked posts">
+            <input type="checkbox" id="filter-bookmarks">
+            <span>🔖 Bookmarked</span>
+          </label>
+
+          <!-- Links Only -->
+          <label class="filter-checkbox-label" title="Show only posts containing external links">
+            <input type="checkbox" id="filter-links">
+            <span>🔗 Has Links</span>
+          </label>
+
+          <!-- Media Only -->
+          <label class="filter-checkbox-label" title="Show only posts with images or videos">
+            <input type="checkbox" id="filter-media">
+            <span>🖼️ Has Media</span>
+          </label>
+
+          <!-- Reset Filter Button -->
+          <button id="btn-reset-filters" class="btn" style="display: none; padding: 4px 8px; font-size: 11px;">
+            Reset Filters
+          </button>
+        </div>
+
+        <div class="filters-right">
+          <!-- Sort Options -->
+          <select id="sort-select" class="filter-select" title="Sort order">
+            <option value="latest_synced" selected>Recently Synced (Newest)</option>
+            <option value="oldest_synced">Earliest Synced</option>
+            <option value="latest_date">Latest by Date</option>
+            <option value="oldest_date">Oldest by Date</option>
+            <option value="likes">Most Likes</option>
+            <option value="retweets">Most Retweets</option>
+            <option value="newest">Newest Scanned</option>
+            <option value="oldest">Oldest Scanned</option>
+          </select>
+
+          <!-- View Mode: Cards vs Compact -->
+          <div class="btn-group" title="Switch view layout">
+            <button id="view-cards-btn" class="btn-group-item active" title="Cards View">⊞ Cards</button>
+            <button id="view-compact-btn" class="btn-group-item" title="Compact List View">☰ List</button>
+          </div>
+
+          <!-- Font Size Scale -->
+          <div class="btn-group" title="Reader Font Size">
+            <button id="font-sm-btn" class="btn-group-item">A-</button>
+            <button id="font-md-btn" class="btn-group-item active">A</button>
+            <button id="font-lg-btn" class="btn-group-item">A+</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Content Area -->
+  <main class="main-content">
+    <!-- Meta Summary Line -->
+    <div class="results-meta">
+      <div id="results-count-text">
+        Showing <span class="results-count-strong" id="visible-count">0</span> of <span class="results-count-strong" id="total-matching-count">0</span> records (Source: Local JSON)
+      </div>
+      <div id="source-badge-text" style="font-family: var(--font-mono); font-size: 11px; color: var(--accent-emerald);">
+        ● Standalone Offline Mode
+      </div>
+    </div>
+
+    <!-- Cards Grid -->
+    <div id="cards-container" class="cards-grid"></div>
+
+    <!-- Compact List View (hidden by default) -->
+    <div id="compact-container" class="compact-list" style="display: none;"></div>
+
+    <!-- Empty State / Drag & Drop -->
+    <div id="empty-state-view" class="empty-state" style="display: none;">
+      <div class="empty-icon">📂</div>
+      <h3 class="empty-title" id="empty-state-title">No Synced Snippets Found</h3>
+      <p class="empty-desc" id="empty-state-desc">
+        No local records match the selected search and filter criteria. Try clearing filters or load a SoroTrack JSON archive directly.
+      </p>
+      <div style="display: flex; gap: 8px; margin-top: 8px;">
+        <button id="btn-empty-clear-filters" class="btn btn-primary">Clear Filters</button>
+        <button id="btn-empty-load-json" class="btn">Browse JSON File...</button>
+      </div>
+    </div>
+
+    <!-- Load More Button -->
+    <div id="load-more-container" class="load-more-container" style="display: none;">
+      <button id="btn-load-more" class="btn btn-primary" style="padding: 10px 24px; font-size: 13px;">
+        Load More Snippets
+      </button>
+    </div>
+  </main>
+
+  <!-- Toast Notification -->
+  <div id="toast-notice" class="toast-notice"></div>
+
+  <!-- Viewer Logic Script -->
+  <script src="viewer.js"></script>
+</body>
+</html>
