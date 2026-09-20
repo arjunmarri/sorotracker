@@ -14,10 +14,11 @@ import {
   Rocket,
   Megaphone,
   Palette,
-  ShoppingBag
+  ShoppingBag,
+  Tag
 } from 'lucide-react';
 import { XHistoryRecord, ContentFilterCategory } from '../types';
-import { getSnippetLabels, CATEGORY_META_MAP } from '../lib/contentFilter';
+import { getSnippetLabels, CATEGORY_META_MAP, ALL_CATEGORY_OPTIONS } from '../lib/contentFilter';
 
 interface SnippetLabelBadgesProps {
   record: XHistoryRecord;
@@ -26,7 +27,7 @@ interface SnippetLabelBadgesProps {
   size?: 'sm' | 'xs';
 }
 
-const CATEGORY_ICONS: Record<ContentFilterCategory, React.ComponentType<{ className?: string }>> = {
+const CATEGORY_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   white_paper: FileText,
   news_announcements: Newspaper,
   tutorials_guides: BookOpen,
@@ -53,9 +54,9 @@ const SnippetLabelBadgesComponent: React.FC<SnippetLabelBadgesProps> = ({
   return (
     <div className={`flex flex-wrap items-center gap-1.5 ${className}`}>
       {labels.map(cat => {
-        const meta = CATEGORY_META_MAP[cat];
+        const meta = CATEGORY_META_MAP[cat] || ALL_CATEGORY_OPTIONS.find(o => o.id === cat);
         if (!meta) return null;
-        const Icon = CATEGORY_ICONS[cat];
+        const Icon = CATEGORY_ICONS[cat] || Tag;
 
         return (
           <button

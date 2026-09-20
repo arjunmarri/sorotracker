@@ -275,7 +275,7 @@ export const Header: React.FC<HeaderProps> = ({
                         Download Extension (.zip)
                       </div>
                       <div className="text-[10px] text-slate-500 dark:text-stone-400 font-sans">
-                        For Chrome or Firefox
+                        For Edge, Chrome, or Firefox
                       </div>
                     </div>
                   </button>

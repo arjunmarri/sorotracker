@@ -119,6 +119,7 @@ export interface SiteSettings {
   theme: SiteTheme;
   footerContent: string;
   footerCopyright: string;
+  customCategories?: ContentFilterOption[];
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -135,14 +136,15 @@ export type ContentFilterCategory =
   | 'memes_humour'
   | 'polemics_debate'
   | 'creative_arts'
-  | 'promotional_pitches_others';
+  | 'promotional_pitches_others'
+  | (string & {});
 
 export interface ContentFilterOption {
   id: ContentFilterCategory;
   number?: number;
   label: string;
   description: string;
-  examples: string;
+  examples?: string;
   type: 'high_signal' | 'noise';
   colorClasses: {
     badge: string;
@@ -150,4 +152,7 @@ export interface ContentFilterOption {
     bg: string;
     border: string;
   };
+  keywords?: string[];
+  isCustom?: boolean;
+  colorPreset?: string;
 }

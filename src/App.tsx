@@ -15,7 +15,7 @@ import { AuthModal } from './components/AuthModal';
 import { ImportJsonModal } from './components/ImportJsonModal';
 import { Footer } from './components/Footer';
 import { ContentFilterSection } from './components/ContentFilterPopover';
-import { filterTimelineRecords, getSnippetLabels, ALL_CATEGORY_OPTIONS } from './lib/contentFilter';
+import { filterTimelineRecords, getSnippetLabels, ALL_CATEGORY_OPTIONS, setCustomCategories } from './lib/contentFilter';
 import { buildSubTopicsFromSnippets, filterRecordsBySubTopic } from './lib/subtopics';
 import { clusterTopics, recordMatchesCluster, TopicClusterGroup } from './lib/topicClustering';
 import { TopicsSidebar } from './components/TopicsSidebar';
@@ -35,13 +35,16 @@ import {
   ExternalLink,
   Plus,
   CheckCheck,
+  Globe,
   SlidersHorizontal,
   Layers,
   ArrowUp,
   BookOpen,
   EyeOff,
   Trash2,
-  X
+  X,
+  Search,
+  ArrowLeft
 } from 'lucide-react';
 
 export default function App() {
@@ -447,6 +450,9 @@ export default function App() {
       if (res.ok) {
         const data: SiteSettings = await res.json();
         setSiteSettings(data);
+        if (data.customCategories && data.customCategories.length > 0) {
+          setCustomCategories(data.customCategories);
+        }
         applyThemeToDOM(data.theme || 'warm-neutral');
         if (data.siteName) {
           document.title = `${data.siteName} — ${data.tagline || '𝕏 Archive & Reference Index'}`;
@@ -474,6 +480,9 @@ export default function App() {
     }
     const updated: SiteSettings = await res.json();
     setSiteSettings(updated);
+    if (updated.customCategories) {
+      setCustomCategories(updated.customCategories);
+    }
     applyThemeToDOM(updated.theme);
     if (updated.siteName) {
       document.title = `${updated.siteName} — ${updated.tagline || '𝕏 Archive & Reference Index'}`;
@@ -653,6 +662,7 @@ export default function App() {
   };
 
   const [selectedCategory, setSelectedCategory] = useState<ContentFilterCategory | null>(null);
+  const [selectedDomain, setSelectedDomain] = useState<string>('');
 
   const handleClearTopicFilter = () => {
     setSelectedTopic(null);
@@ -676,6 +686,7 @@ export default function App() {
   const handleClearFilters = () => {
     setSearchQuery('');
     setSelectedAuthor('');
+    setSelectedDomain('');
     setSelectedTopic(null);
     setSelectedCluster(null);
     setSelectedCategory(null);
@@ -721,9 +732,129 @@ export default function App() {
     return topicFilteredRecords.filter(r => getSnippetLabels(r).includes(selectedCategory));
   }, [topicFilteredRecords, selectedCategory]);
 
+  // Domain filter if selected (e.g. github.com, arxiv.org, youtube.com)
+  const domainFilteredRecords = useMemo(() => {
+    if (!selectedDomain) return categoryFilteredRecords;
+    const cleanFilter = selectedDomain.toLowerCase().trim();
+    return categoryFilteredRecords.filter(r => 
+      r.links && r.links.some(l => l.domain && l.domain.toLowerCase().replace(/^www\./, '').includes(cleanFilter))
+    );
+  }, [categoryFilteredRecords, selectedDomain]);
+
+  // Author filter if selected
+  const authorFilteredRecords = useMemo(() => {
+    if (!selectedAuthor) return domainFilteredRecords;
+    const authLower = selectedAuthor.toLowerCase();
+    return domainFilteredRecords.filter(r => 
+      (r.authorHandle && r.authorHandle.toLowerCase() === authLower) ||
+      (r.authorName && r.authorName.toLowerCase() === authLower)
+    );
+  }, [domainFilteredRecords, selectedAuthor]);
+
+  // Has links filter if enabled
+  const linksFilteredRecords = useMemo(() => {
+    if (!hasLinksOnly) return authorFilteredRecords;
+    return authorFilteredRecords.filter(r => Boolean(r.links && r.links.length > 0));
+  }, [authorFilteredRecords, hasLinksOnly]);
+
+  // Has media / images filter if enabled
+  const mediaFilteredRecords = useMemo(() => {
+    if (!hasMediaOnly) return linksFilteredRecords;
+    return linksFilteredRecords.filter(r => Boolean(r.media && r.media.length > 0));
+  }, [linksFilteredRecords, hasMediaOnly]);
+
+  // In-line search query filter
+  const searchFilteredRecords = useMemo(() => {
+    if (!debouncedSearchQuery.trim()) return mediaFilteredRecords;
+    const q = debouncedSearchQuery.toLowerCase().trim();
+    return mediaFilteredRecords.filter(r => {
+      if (r.text && r.text.toLowerCase().includes(q)) return true;
+      if (r.authorName && r.authorName.toLowerCase().includes(q)) return true;
+      if (r.authorHandle && r.authorHandle.toLowerCase().includes(q)) return true;
+      if (r.tags && r.tags.some(t => t.toLowerCase().includes(q))) return true;
+      if (r.links && r.links.some(l => 
+        (l.title && l.title.toLowerCase().includes(q)) ||
+        (l.domain && l.domain.toLowerCase().includes(q)) ||
+        (l.url && l.url.toLowerCase().includes(q))
+      )) return true;
+      return false;
+    });
+  }, [mediaFilteredRecords, debouncedSearchQuery]);
+
+  // Sort records based on selected SortOption
   const displayedRecords = useMemo(() => {
-    return categoryFilteredRecords;
-  }, [categoryFilteredRecords]);
+    const list = [...searchFilteredRecords];
+    list.sort((a, b) => {
+      switch (sortBy) {
+        case 'latest_date':
+          return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+        case 'oldest_date':
+          return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+        case 'latest_synced': {
+          const timeA = new Date(a.syncedAt || a.scannedAt || a.createdAt || 0).getTime();
+          const timeB = new Date(b.syncedAt || b.scannedAt || b.createdAt || 0).getTime();
+          return timeB - timeA;
+        }
+        case 'oldest_synced': {
+          const timeA = new Date(a.syncedAt || a.scannedAt || a.createdAt || 0).getTime();
+          const timeB = new Date(b.syncedAt || b.scannedAt || b.createdAt || 0).getTime();
+          return timeA - timeB;
+        }
+        case 'newest': {
+          const timeA = new Date(a.scannedAt || a.createdAt || 0).getTime();
+          const timeB = new Date(b.scannedAt || b.createdAt || 0).getTime();
+          return timeB - timeA;
+        }
+        case 'oldest': {
+          const timeA = new Date(a.scannedAt || a.createdAt || 0).getTime();
+          const timeB = new Date(b.scannedAt || b.createdAt || 0).getTime();
+          return timeA - timeB;
+        }
+        case 'likes':
+          return (b.metrics?.likes || 0) - (a.metrics?.likes || 0);
+        case 'retweets':
+          return (b.metrics?.retweets || 0) - (a.metrics?.retweets || 0);
+        default:
+          return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      }
+    });
+    return list;
+  }, [searchFilteredRecords, sortBy]);
+
+  // Available authors list computed with fallback
+  const availableAuthors = useMemo<Array<[string, number]>>(() => {
+    if (stats.topAuthors && stats.topAuthors.length > 0) {
+      return stats.topAuthors;
+    }
+    const counts: Record<string, number> = {};
+    records.forEach(r => {
+      const handle = r.authorHandle || r.authorName;
+      if (handle) {
+        counts[handle] = (counts[handle] || 0) + 1;
+      }
+    });
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20);
+  }, [stats.topAuthors, records]);
+
+  // Available link domains computed from all records
+  const availableDomains = useMemo<Array<[string, number]>>(() => {
+    const counts: Record<string, number> = {};
+    records.forEach(r => {
+      if (r.links && r.links.length > 0) {
+        r.links.forEach(l => {
+          if (l.domain) {
+            const cleanDomain = l.domain.toLowerCase().replace(/^www\./, '');
+            counts[cleanDomain] = (counts[cleanDomain] || 0) + 1;
+          }
+        });
+      }
+    });
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 30);
+  }, [records]);
 
   // Reset pagination to 25 whenever active filters or search change
   useEffect(() => {
@@ -731,6 +862,7 @@ export default function App() {
   }, [
     debouncedSearchQuery, 
     selectedAuthor, 
+    selectedDomain,
     selectedTopic, 
     selectedCluster, 
     selectedSubTopic, 
@@ -907,108 +1039,134 @@ export default function App() {
             initialSubTopic={selectedSubTopic}
             fontSize={readerFontSize}
           />
-        ) : debouncedSearchQuery.trim() !== '' ? (
-          <div className="flex flex-col lg:flex-row items-start gap-6">
-            {/* Search Results Main Page with all Filters and Search Options */}
-            <div className="flex-1 min-w-0 w-full">
-              <SearchPage
-                searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
-                onBackToTimeline={handleBackToTimeline}
-                records={displayedRecords}
-                totalArchivedCount={stats.totalArchived}
-                matchingCount={displayedRecords.length}
-                selectedAuthor={selectedAuthor}
-                onAuthorChange={setSelectedAuthor}
-                availableAuthors={stats.topAuthors}
-                selectedCategory={selectedCategory}
-                onCategoryChange={setSelectedCategory}
-                categoryCounts={categoryCounts}
-                selectedCluster={selectedCluster}
-                onClearCluster={() => handleSelectCluster(null)}
-                selectedSubTopic={selectedSubTopic}
-                onClearSubTopic={() => handleSelectSubTopic(null)}
-                hasLinksOnly={hasLinksOnly}
-                onToggleHasLinks={() => setHasLinksOnly(prev => !prev)}
-                hasMediaOnly={hasMediaOnly}
-                onToggleHasMedia={() => setHasMediaOnly(prev => !prev)}
-                sortBy={sortBy}
-                onSortChange={setSortBy}
-                viewMode={viewMode}
-                onViewModeChange={setViewMode}
-                fontSize={readerFontSize}
-                onFontSizeChange={handleFontSizeChange}
-                onClearFilters={handleClearFilters}
-                onDeleteRecord={handleDeleteRecord}
-                onSelectAuthor={(handle) => setSelectedAuthor(handle)}
-                onSelectCategory={handleSelectCategory}
-                readSnippetSet={readSnippetSet}
-                onToggleReadSnippet={handleToggleReadSnippet}
-                isLoading={isLoadingRecords}
-              />
-            </div>
-
-            {/* Right Column: Topics Sidebar with Archive Search */}
-            <TopicsSidebar
-              clusters={topicClusters}
-              selectedCluster={selectedCluster}
-              onSelectCluster={handleSelectCluster}
-              selectedSubTopic={selectedSubTopic}
-              onSelectSubTopic={handleSelectSubTopic}
-              onNavigateToCategoryPage={handleNavigateToCategoryPage}
-              isOpen={isTopicsSidebarOpen}
-              onToggleOpen={() => setIsTopicsSidebarOpen(prev => !prev)}
-              onClose={() => setIsTopicsSidebarOpen(false)}
-              onOpen={() => setIsTopicsSidebarOpen(true)}
-              archiveSearchQuery={searchQuery}
-              onArchiveSearchChange={setSearchQuery}
-              onArchiveSearchSubmit={(q) => setSearchQuery(q)}
-            />
-          </div>
         ) : (
           <div className="flex flex-col lg:flex-row items-start gap-6">
 
-          {/* Left Column: Timeline View (Starts from the top and clean - No search option at top) */}
+          {/* Left Column: Timeline View with FilterBar, Search & Records */}
           <div className="flex-1 min-w-0 w-full">
+            {/* Filter Bar with All Search, Filters, View Modes, and Sort Options */}
+            <FilterBar
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              selectedDomain={selectedDomain}
+              onDomainChange={setSelectedDomain}
+              availableDomains={availableDomains}
+              selectedAuthor={selectedAuthor}
+              onAuthorChange={setSelectedAuthor}
+              selectedCluster={selectedCluster}
+              onClearCluster={() => handleSelectCluster(null)}
+              selectedTopic={selectedTopic}
+              onClearTopic={handleClearTopicFilter}
+              selectedSubTopic={selectedSubTopic}
+              onClearSubTopic={() => handleSelectSubTopic(null)}
+              selectedCategory={selectedCategory}
+              onCategoryChange={handleSelectCategory}
+              categoryCounts={categoryCounts}
+              categories={siteSettings?.customCategories || ALL_CATEGORY_OPTIONS}
+              hasLinksOnly={hasLinksOnly}
+              onToggleHasLinks={() => setHasLinksOnly(prev => !prev)}
+              hasMediaOnly={hasMediaOnly}
+              onToggleHasMedia={() => setHasMediaOnly(prev => !prev)}
+              sortBy={sortBy}
+              onSortChange={setSortBy}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              fontSize={readerFontSize}
+              onFontSizeChange={handleFontSizeChange}
+              availableAuthors={availableAuthors}
+              totalCount={stats.totalArchived || records.length}
+              filteredCount={displayedRecords.length}
+              isFilterSectionOpen={isFilterSectionOpen}
+              onToggleFilterSection={() => setIsFilterSectionOpen(prev => !prev)}
+              activeContentFilterCount={activeContentFilters.length}
+              onClearFilters={handleClearFilters}
+            />
+
+            {/* Expandable Content Filter Section when opened */}
+            {isFilterSectionOpen && (
+              <div className="mb-4">
+                <ContentFilterSection
+                  isOpen={isFilterSectionOpen}
+                  onClose={() => setIsFilterSectionOpen(false)}
+                  activeFilters={activeContentFilters}
+                  onToggleFilter={handleToggleContentFilter}
+                  onSetAllFilters={setActiveContentFilters}
+                  onClearFilters={() => setActiveContentFilters([])}
+                  categoryCounts={categoryCounts}
+                  totalFilteredCount={contentFilteredOutRecords.length}
+                />
+              </div>
+            )}
+
+            {/* In-feed Active Search Banner when search is active */}
+            {debouncedSearchQuery.trim() !== '' && (
+              <div className="mb-5 p-3.5 bg-white border border-slate-200 rounded-xl flex items-center justify-between gap-3 text-xs shadow-2xs animate-fade-in">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Search className="w-3.5 h-3.5 text-slate-500" />
+                  <span className="text-slate-600">
+                    Search results for <strong className="text-slate-900 font-mono">"{debouncedSearchQuery}"</strong>
+                  </span>
+                  <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-800 border border-slate-200">
+                    {displayedRecords.length} {displayedRecords.length === 1 ? 'match' : 'matches'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-900 underline font-medium cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                  <span>Clear search</span>
+                </button>
+              </div>
+            )}
+
             {/* Active topic or filter chips if any are selected */}
-            {(selectedCluster || selectedSubTopic || selectedCategory || selectedAuthor || hasLinksOnly || hasMediaOnly) && (
+            {(selectedCluster || selectedSubTopic || selectedCategory || selectedDomain || selectedAuthor || hasLinksOnly || hasMediaOnly) && (
               <div className="mb-4 p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between gap-3 text-xs">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-slate-500 font-medium">Filtered by:</span>
                   {selectedCluster && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-800 font-medium">
                       Cluster: {selectedCluster.name}
-                      <button onClick={() => handleSelectCluster(null)} className="hover:text-rose-600"><X className="w-3 h-3" /></button>
+                      <button onClick={() => handleSelectCluster(null)} className="hover:text-rose-600 cursor-pointer"><X className="w-3 h-3" /></button>
                     </span>
                   )}
                   {selectedSubTopic && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-800 font-medium">
                       Topic: {selectedSubTopic.label}
-                      <button onClick={() => handleSelectSubTopic(null)} className="hover:text-rose-600"><X className="w-3 h-3" /></button>
+                      <button onClick={() => handleSelectSubTopic(null)} className="hover:text-rose-600 cursor-pointer"><X className="w-3 h-3" /></button>
                     </span>
                   )}
                   {selectedCategory && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-800 font-medium">
                       Category: {selectedCategory}
-                      <button onClick={() => setSelectedCategory(null)} className="hover:text-rose-600"><X className="w-3 h-3" /></button>
+                      <button onClick={() => setSelectedCategory(null)} className="hover:text-rose-600 cursor-pointer"><X className="w-3 h-3" /></button>
+                    </span>
+                  )}
+                  {selectedDomain && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-800 font-medium">
+                      <Globe className="w-3 h-3 text-slate-600" />
+                      Domain: {selectedDomain}
+                      <button onClick={() => setSelectedDomain('')} className="hover:text-rose-600 cursor-pointer"><X className="w-3 h-3" /></button>
                     </span>
                   )}
                   {selectedAuthor && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-800 font-medium">
                       Author: {selectedAuthor}
-                      <button onClick={() => setSelectedAuthor('')} className="hover:text-rose-600"><X className="w-3 h-3" /></button>
+                      <button onClick={() => setSelectedAuthor('')} className="hover:text-rose-600 cursor-pointer"><X className="w-3 h-3" /></button>
                     </span>
                   )}
                   {hasLinksOnly && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-800 font-medium">
                       Has Links
-                      <button onClick={() => setHasLinksOnly(false)} className="hover:text-rose-600"><X className="w-3 h-3" /></button>
+                      <button onClick={() => setHasLinksOnly(false)} className="hover:text-rose-600 cursor-pointer"><X className="w-3 h-3" /></button>
                     </span>
                   )}
                   {hasMediaOnly && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-800 font-medium">
                       Has Media
-                      <button onClick={() => setHasMediaOnly(false)} className="hover:text-rose-600"><X className="w-3 h-3" /></button>
+                      <button onClick={() => setHasMediaOnly(false)} className="hover:text-rose-600 cursor-pointer"><X className="w-3 h-3" /></button>
                     </span>
                   )}
                 </div>

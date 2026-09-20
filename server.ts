@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import JSZip from 'jszip';
 import { createServer as createViteServer } from 'vite';
 import { SortOption } from './src/types';
 import { 
@@ -497,6 +498,125 @@ app.get('/api/extension/files', (req, res) => {
     res.json({ files, binaryFiles, authToken: getSyncAuthToken() });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to read extension files' });
+  }
+});
+
+// Direct Extension Zip Download Route (supports ?browser=edge, ?browser=chrome, ?browser=firefox)
+app.get('/api/extension/download', async (req, res) => {
+  try {
+    const targetBrowser = (req.query.browser as string)?.toLowerCase() || 'edge';
+    const extensionDir = path.join(process.cwd(), 'extension');
+    const authToken = getSyncAuthToken();
+    const appOrigin = `${req.protocol}://${req.get('host')}`;
+
+    const fileNames = [
+      'manifest.json',
+      'content.js',
+      'content.css',
+      'background.js',
+      'popup.html',
+      'popup.js',
+      'options.html',
+      'options.js',
+      'viewer.html',
+      'viewer.js',
+      'viewer.css',
+      'README.md'
+    ];
+
+    const zip = new JSZip();
+
+    for (const name of fileNames) {
+      const filePath = path.join(extensionDir, name);
+      if (!fs.existsSync(filePath)) continue;
+
+      let content = fs.readFileSync(filePath, 'utf-8');
+
+      // Inject app origin into extension configs
+      if (appOrigin && !appOrigin.includes('localhost:3000')) {
+        content = content.replace(/http:\/\/localhost:3000/g, appOrigin);
+      }
+
+      // Inject authentication token
+      if (authToken) {
+        if (name === 'content.js' || name === 'background.js') {
+          content = content.replace(/authToken:\s*['"][^'"]*['"]/g, `authToken: '${authToken}'`);
+        }
+        if (name === 'popup.html') {
+          content = content.replace(
+            /id="auth-token"\s*placeholder="sh_live_\.\.\."/g,
+            `id="auth-token" value="${authToken}" placeholder="sh_live_..."`
+          );
+        }
+        if (name === 'options.html') {
+          content = content.replace(
+            /id="authToken"\s*placeholder="sh_live_\.\.\."/g,
+            `id="authToken" value="${authToken}" placeholder="sh_live_..."`
+          );
+        }
+        if (name === 'options.js' || name === 'popup.js') {
+          content = content.replace(/stored\?\.authToken\s*\|\|\s*''/g, `stored?.authToken || '${authToken}'`);
+        }
+      }
+
+      // Customize manifest for Edge, Chrome, or Firefox
+      if (name === 'manifest.json') {
+        try {
+          const manifest = JSON.parse(content);
+          if (targetBrowser === 'edge' || targetBrowser === 'chrome') {
+            manifest.background = {
+              service_worker: 'background.js'
+            };
+            delete manifest.browser_specific_settings;
+            if (targetBrowser === 'edge') {
+              manifest.name = 'SoroTrack Extension (Microsoft Edge)';
+            }
+          } else if (targetBrowser === 'firefox') {
+            manifest.background = {
+              scripts: ['background.js']
+            };
+            manifest.browser_specific_settings = {
+              gecko: {
+                id: 'sorotrack@dashboard.local',
+                strict_min_version: '109.0'
+              }
+            };
+          }
+
+          if (appOrigin) {
+            if (!manifest.host_permissions) manifest.host_permissions = [];
+            const perm = `${appOrigin}/*`;
+            if (!manifest.host_permissions.includes(perm)) manifest.host_permissions.push(perm);
+          }
+
+          content = JSON.stringify(manifest, null, 2);
+        } catch {}
+      }
+
+      zip.file(name, content);
+    }
+
+    // Add icon binary assets
+    const icons = ['icon16.png', 'icon48.png', 'icon128.png'];
+    for (const iconName of icons) {
+      const iconPath = path.join(extensionDir, iconName);
+      if (fs.existsSync(iconPath)) {
+        zip.file(iconName, fs.readFileSync(iconPath));
+      }
+    }
+
+    const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
+    const filename = targetBrowser === 'edge' 
+      ? 'sorotrack-edge.zip' 
+      : targetBrowser === 'firefox' 
+      ? 'sorotrack-firefox.zip' 
+      : 'sorotrack-chrome.zip';
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(zipBuffer);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to generate extension zip' });
   }
 });
 

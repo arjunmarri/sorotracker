@@ -134,6 +134,16 @@ export const DedicatedCategoryPage: React.FC<DedicatedCategoryPageProps> = ({
       if (sortBy === 'oldest_date') {
         return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
       }
+      if (sortBy === 'newest') {
+        const timeB = new Date(b.scannedAt || b.createdAt || 0).getTime();
+        const timeA = new Date(a.scannedAt || a.createdAt || 0).getTime();
+        return timeB - timeA;
+      }
+      if (sortBy === 'oldest') {
+        const timeA = new Date(a.scannedAt || a.createdAt || 0).getTime();
+        const timeB = new Date(b.scannedAt || b.createdAt || 0).getTime();
+        return timeA - timeB;
+      }
       if (sortBy === 'likes') {
         return (b.likeCount || 0) - (a.likeCount || 0);
       }
@@ -575,6 +585,8 @@ export const DedicatedCategoryPage: React.FC<DedicatedCategoryPageProps> = ({
             <option value="oldest_date">Oldest Date</option>
             <option value="latest_synced">Recently Synced</option>
             <option value="oldest_synced">Earliest Synced</option>
+            <option value="newest">Newest Scanned</option>
+            <option value="oldest">Oldest Scanned</option>
             <option value="likes">Most Likes</option>
             <option value="retweets">Most Retweets</option>
           </select>

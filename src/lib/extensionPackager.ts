@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 
-export type TargetBrowser = 'firefox' | 'chrome' | 'universal';
+export type TargetBrowser = 'firefox' | 'chrome' | 'edge' | 'universal';
 
 export async function packageExtensionZip(
   files: Record<string, string>, 
@@ -54,11 +54,14 @@ export async function packageExtensionZip(
   if (bundleFiles['manifest.json']) {
     try {
       const manifest = JSON.parse(bundleFiles['manifest.json']);
-      if (targetBrowser === 'chrome') {
+      if (targetBrowser === 'chrome' || targetBrowser === 'edge') {
         manifest.background = {
           service_worker: 'background.js'
         };
         delete manifest.browser_specific_settings;
+        if (targetBrowser === 'edge') {
+          manifest.name = 'SoroTrack Extension (Microsoft Edge)';
+        }
       } else if (targetBrowser === 'firefox') {
         manifest.background = {
           scripts: ['background.js']

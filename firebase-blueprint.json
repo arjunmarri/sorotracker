@@ -124,6 +124,13 @@
           "type": "string",
           "description": "Copyright text or disclaimer"
         },
+        "customCategories": {
+          "type": "array",
+          "description": "Customized, renamed, added, or removed content classification labels with display metadata and heuristics.",
+          "items": {
+            "type": "object"
+          }
+        },
         "updatedAt": {
           "type": "string",
           "description": "Timestamp when configuration was last saved"

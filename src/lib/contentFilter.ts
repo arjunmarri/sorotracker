@@ -6,7 +6,7 @@ import { XHistoryRecord, ContentFilterCategory, ContentFilterOption } from '../t
  * If any content is outside, it is routed to "Promotional Pitches & Others".
  */
 
-export const ALL_CATEGORY_OPTIONS: ContentFilterOption[] = [
+export const DEFAULT_CATEGORY_OPTIONS: ContentFilterOption[] = [
   {
     id: 'white_paper',
     number: 1,
@@ -14,6 +14,7 @@ export const ALL_CATEGORY_OPTIONS: ContentFilterOption[] = [
     description: 'Posts analyzing, summarizing, or reviewing formal academic papers, arXiv preprints, empirical studies, or institutional research findings.',
     examples: 'e.g., arXiv preprints, academic authors/institutions (DeepMind, Stanford), theoretical formulations, "banger paper", "we propose a method"',
     type: 'high_signal',
+    colorPreset: 'indigo',
     colorClasses: {
       badge: 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-indigo-800',
       text: 'text-indigo-700 dark:text-indigo-300',
@@ -28,6 +29,7 @@ export const ALL_CATEGORY_OPTIONS: ContentFilterOption[] = [
     description: 'Time-sensitive broadcast communications detailing new software versions, model releases, public APIs, corporate launches, or official platform changes.',
     examples: 'e.g., "introducing", "now available", "just dropped", "announcing", "rolling out", "live in beta", official releases',
     type: 'high_signal',
+    colorPreset: 'sky',
     colorClasses: {
       badge: 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/50 dark:text-sky-300 dark:border-sky-800',
       text: 'text-sky-700 dark:text-sky-300',
@@ -42,6 +44,7 @@ export const ALL_CATEGORY_OPTIONS: ContentFilterOption[] = [
     description: 'Educational, instructive walkthroughs providing step-by-step guidance, code snippets, or configuration patterns to solve a specific technical task.',
     examples: 'e.g., procedural formatting ("step 1, step 2"), "here is how to", terminal commands, walkthroughs, "from scratch"',
     type: 'high_signal',
+    colorPreset: 'emerald',
     colorClasses: {
       badge: 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800',
       text: 'text-emerald-800 dark:text-emerald-300',
@@ -56,6 +59,7 @@ export const ALL_CATEGORY_OPTIONS: ContentFilterOption[] = [
     description: 'Compilations of reference materials, high-density infographics, structured learning paths, tool directories, or recommended account indices.',
     examples: 'e.g., "cheat sheet", "roadmap to learn X", "top 10 tools", "bookmark this collection", reading lists, directories',
     type: 'high_signal',
+    colorPreset: 'cyan',
     colorClasses: {
       badge: 'bg-cyan-50 text-cyan-800 border-cyan-200 dark:bg-cyan-950/50 dark:text-cyan-300 dark:border-cyan-800',
       text: 'text-cyan-800 dark:text-cyan-300',
@@ -70,6 +74,7 @@ export const ALL_CATEGORY_OPTIONS: ContentFilterOption[] = [
     description: 'Opinion-driven essays, philosophical discussions, strategic industry analysis, macroeconomic critiques, and personal reflections on technological or business directions.',
     examples: 'e.g., "I wrote about", "I believe", speculative essays, macroeconomic projections (CapEx returns), industry paradigms',
     type: 'high_signal',
+    colorPreset: 'amber',
     colorClasses: {
       badge: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800',
       text: 'text-amber-800 dark:text-amber-300',
@@ -84,6 +89,7 @@ export const ALL_CATEGORY_OPTIONS: ContentFilterOption[] = [
     description: '"Show-and-tell" displays of working prototypes, proof-of-concept experiments, hobbyist hardware setups, or practical tool applications created by an individual or team.',
     examples: 'e.g., screencasts, "look what I built", "15 minutes later: Boom", benchmark test clips, running hardware setups',
     type: 'high_signal',
+    colorPreset: 'violet',
     colorClasses: {
       badge: 'bg-violet-50 text-violet-800 border-violet-200 dark:bg-violet-950/50 dark:text-violet-300 dark:border-violet-800',
       text: 'text-violet-800 dark:text-violet-300',
@@ -98,6 +104,7 @@ export const ALL_CATEGORY_OPTIONS: ContentFilterOption[] = [
     description: 'Content intended purely for entertainment, comedic relief, hyperbolic parody, developer irony, or viral social humor.',
     examples: 'e.g., absurdist scenarios, sarcastic commentary, self-deprecating developer jokes, viral video captions, physics/science puns',
     type: 'noise',
+    colorPreset: 'rose',
     colorClasses: {
       badge: 'bg-rose-50 text-rose-700 border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/60',
       text: 'text-rose-700 dark:text-rose-300',
@@ -112,6 +119,7 @@ export const ALL_CATEGORY_OPTIONS: ContentFilterOption[] = [
     description: 'Emotionally charged socio-political media, political protest documentation, television debate snippets, partisan commentary, or accusations of bias/hypocrisy.',
     examples: 'e.g., political hashtags, protest coverage, media callouts, debate video clips, partisan vocabulary ("exposed", "protest", "riots")',
     type: 'noise',
+    colorPreset: 'red',
     colorClasses: {
       badge: 'bg-red-50 text-red-700 border-red-200/80 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800/60',
       text: 'text-red-700 dark:text-red-300',
@@ -126,6 +134,7 @@ export const ALL_CATEGORY_OPTIONS: ContentFilterOption[] = [
     description: 'Aesthetic, cultural, or artistic media posts focused on film retrospectives, digital art renders, architecture, photography, and fine art appreciation.',
     examples: 'e.g., art credits, image-generation prompts (Midjourney), film ranking tags, director/actor mentions, residential architectural showcases',
     type: 'high_signal',
+    colorPreset: 'purple',
     colorClasses: {
       badge: 'bg-purple-50 text-purple-700 border-purple-200/80 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800/60',
       text: 'text-purple-700 dark:text-purple-300',
@@ -140,6 +149,7 @@ export const ALL_CATEGORY_OPTIONS: ContentFilterOption[] = [
     description: 'Marketing-focused content designed to capture leads, drive traffic to a commercial service, promote paid communities, or solicit social engagement via gating. Also strictly absorbs all outside content.',
     examples: 'e.g., "Reply \'Send\' to get X", "join our cohort", explicit ad copy, affiliate/UTM links, commercial product promotions, and outside posts',
     type: 'noise',
+    colorPreset: 'orange',
     colorClasses: {
       badge: 'bg-orange-50 text-orange-700 border-orange-200/80 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800/60',
       text: 'text-orange-700 dark:text-orange-300',
@@ -149,16 +159,184 @@ export const ALL_CATEGORY_OPTIONS: ContentFilterOption[] = [
   }
 ];
 
-export const FILTER_OUT_OPTIONS: ContentFilterOption[] = ALL_CATEGORY_OPTIONS.filter(o => o.type === 'noise');
-export const HIGH_SIGNAL_OPTIONS: ContentFilterOption[] = ALL_CATEGORY_OPTIONS.filter(o => o.type === 'high_signal');
+export const LABEL_COLOR_PRESETS: Record<string, {
+  name: string;
+  badge: string;
+  text: string;
+  bg: string;
+  border: string;
+  swatchBg: string;
+}> = {
+  indigo: {
+    name: 'Indigo',
+    badge: 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-indigo-800',
+    text: 'text-indigo-700 dark:text-indigo-300',
+    bg: 'bg-indigo-50 dark:bg-indigo-950/50',
+    border: 'border-indigo-200 dark:border-indigo-800',
+    swatchBg: 'bg-indigo-500'
+  },
+  sky: {
+    name: 'Sky Blue',
+    badge: 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/50 dark:text-sky-300 dark:border-sky-800',
+    text: 'text-sky-700 dark:text-sky-300',
+    bg: 'bg-sky-50 dark:bg-sky-950/50',
+    border: 'border-sky-200 dark:border-sky-800',
+    swatchBg: 'bg-sky-500'
+  },
+  emerald: {
+    name: 'Emerald Green',
+    badge: 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800',
+    text: 'text-emerald-800 dark:text-emerald-300',
+    bg: 'bg-emerald-50 dark:bg-emerald-950/50',
+    border: 'border-emerald-200 dark:border-emerald-800',
+    swatchBg: 'bg-emerald-500'
+  },
+  cyan: {
+    name: 'Cyan Teal',
+    badge: 'bg-cyan-50 text-cyan-800 border-cyan-200 dark:bg-cyan-950/50 dark:text-cyan-300 dark:border-cyan-800',
+    text: 'text-cyan-800 dark:text-cyan-300',
+    bg: 'bg-cyan-50 dark:bg-cyan-950/50',
+    border: 'border-cyan-200 dark:border-cyan-800',
+    swatchBg: 'bg-cyan-500'
+  },
+  amber: {
+    name: 'Amber Gold',
+    badge: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800',
+    text: 'text-amber-800 dark:text-amber-300',
+    bg: 'bg-amber-50 dark:bg-amber-950/50',
+    border: 'border-amber-200 dark:border-amber-800',
+    swatchBg: 'bg-amber-500'
+  },
+  violet: {
+    name: 'Violet',
+    badge: 'bg-violet-50 text-violet-800 border-violet-200 dark:bg-violet-950/50 dark:text-violet-300 dark:border-violet-800',
+    text: 'text-violet-800 dark:text-violet-300',
+    bg: 'bg-violet-50 dark:bg-violet-950/50',
+    border: 'border-violet-200 dark:border-violet-800',
+    swatchBg: 'bg-violet-500'
+  },
+  rose: {
+    name: 'Rose Pink',
+    badge: 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800',
+    text: 'text-rose-700 dark:text-rose-300',
+    bg: 'bg-rose-50 dark:bg-rose-950/40',
+    border: 'border-rose-200 dark:border-rose-800',
+    swatchBg: 'bg-rose-500'
+  },
+  red: {
+    name: 'Crimson Red',
+    badge: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800',
+    text: 'text-red-700 dark:text-red-300',
+    bg: 'bg-red-50 dark:bg-red-950/40',
+    border: 'border-red-200 dark:border-red-800',
+    swatchBg: 'bg-red-500'
+  },
+  purple: {
+    name: 'Purple',
+    badge: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800',
+    text: 'text-purple-700 dark:text-purple-300',
+    bg: 'bg-purple-50 dark:bg-purple-950/40',
+    border: 'border-purple-200 dark:border-purple-800',
+    swatchBg: 'bg-purple-500'
+  },
+  orange: {
+    name: 'Warm Orange',
+    badge: 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800',
+    text: 'text-orange-700 dark:text-orange-300',
+    bg: 'bg-orange-50 dark:bg-orange-950/40',
+    border: 'border-orange-200 dark:border-orange-800',
+    swatchBg: 'bg-orange-500'
+  },
+  teal: {
+    name: 'Teal',
+    badge: 'bg-teal-50 text-teal-800 border-teal-200 dark:bg-teal-950/50 dark:text-teal-300 dark:border-teal-800',
+    text: 'text-teal-800 dark:text-teal-300',
+    bg: 'bg-teal-50 dark:bg-teal-950/50',
+    border: 'border-teal-200 dark:border-teal-800',
+    swatchBg: 'bg-teal-500'
+  },
+  fuchsia: {
+    name: 'Fuchsia Magenta',
+    badge: 'bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200 dark:bg-fuchsia-950/50 dark:text-fuchsia-300 dark:border-fuchsia-800',
+    text: 'text-fuchsia-800 dark:text-fuchsia-300',
+    bg: 'bg-fuchsia-50 dark:bg-fuchsia-950/50',
+    border: 'border-fuchsia-200 dark:border-fuchsia-800',
+    swatchBg: 'bg-fuchsia-500'
+  },
+  slate: {
+    name: 'Slate Charcoal',
+    badge: 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700',
+    text: 'text-slate-800 dark:text-slate-200',
+    bg: 'bg-slate-100 dark:bg-slate-800',
+    border: 'border-slate-300 dark:border-slate-700',
+    swatchBg: 'bg-slate-500'
+  }
+};
 
-export const CATEGORY_META_MAP: Record<ContentFilterCategory, ContentFilterOption> = ALL_CATEGORY_OPTIONS.reduce(
+/**
+ * Mutable live array of active categories, initialized with DEFAULT_CATEGORY_OPTIONS.
+ * Any admin overrides/renames/additions/removals will update this in-place so all
+ * existing consumers get the updated items.
+ */
+export const ALL_CATEGORY_OPTIONS: ContentFilterOption[] = [...DEFAULT_CATEGORY_OPTIONS];
+
+export let FILTER_OUT_OPTIONS: ContentFilterOption[] = ALL_CATEGORY_OPTIONS.filter(o => o.type === 'noise');
+export let HIGH_SIGNAL_OPTIONS: ContentFilterOption[] = ALL_CATEGORY_OPTIONS.filter(o => o.type === 'high_signal');
+
+export let CATEGORY_META_MAP: Record<string, ContentFilterOption> = ALL_CATEGORY_OPTIONS.reduce(
   (acc, opt) => {
     acc[opt.id] = opt;
     return acc;
   },
-  {} as Record<ContentFilterCategory, ContentFilterOption>
+  {} as Record<string, ContentFilterOption>
 );
+
+export function clearSnippetClassificationCaches(): void {
+  snippetScoreCache.clear();
+  snippetLabelsCache.clear();
+  snippetCategoriesCache.clear();
+}
+
+/**
+ * Update the global categories list with user-customized labels.
+ */
+export function setCustomCategories(customList?: ContentFilterOption[] | null): ContentFilterOption[] {
+  ALL_CATEGORY_OPTIONS.length = 0;
+  if (customList && Array.isArray(customList) && customList.length > 0) {
+    ALL_CATEGORY_OPTIONS.push(...customList);
+  } else {
+    ALL_CATEGORY_OPTIONS.push(...DEFAULT_CATEGORY_OPTIONS);
+  }
+
+  // Rebuild helper lists
+  FILTER_OUT_OPTIONS = ALL_CATEGORY_OPTIONS.filter(o => o.type === 'noise');
+  HIGH_SIGNAL_OPTIONS = ALL_CATEGORY_OPTIONS.filter(o => o.type === 'high_signal');
+  
+  CATEGORY_META_MAP = ALL_CATEGORY_OPTIONS.reduce(
+    (acc, opt) => {
+      acc[opt.id] = opt;
+      return acc;
+    },
+    {} as Record<string, ContentFilterOption>
+  );
+
+  clearSnippetClassificationCaches();
+  return ALL_CATEGORY_OPTIONS;
+}
+
+/**
+ * Get category metadata by ID with safe fallback.
+ */
+export function getCategoryMetadata(catId: string): ContentFilterOption | undefined {
+  return CATEGORY_META_MAP[catId] || ALL_CATEGORY_OPTIONS.find(o => o.id === catId);
+}
+
+/**
+ * Reset all categories back to the 10 canonical defaults.
+ */
+export function resetCategoriesToDefault(): ContentFilterOption[] {
+  return setCustomCategories(DEFAULT_CATEGORY_OPTIONS);
+}
 
 // Academic and Research Domains for White Paper classification signal
 const WHITE_PAPER_DOMAINS = [
@@ -264,23 +442,17 @@ export function scoreSnippetCategories(record: XHistoryRecord): Array<{ category
     return snippetScoreCache.get(record.id)!;
   }
 
-  const scores: Record<ContentFilterCategory, number> = {
-    white_paper: 0,
-    news_announcements: 0,
-    tutorials_guides: 0,
-    cheat_sheets_lists: 0,
-    commentary_essays: 0,
-    project_demos: 0,
-    memes_humour: 0,
-    polemics_debate: 0,
-    creative_arts: 0,
-    promotional_pitches_others: 0
-  };
+  // Active categories map
+  const activeIds = new Set(ALL_CATEGORY_OPTIONS.map(c => c.id));
+  const scores: Record<string, number> = {};
+  for (const cat of ALL_CATEGORY_OPTIONS) {
+    scores[cat.id] = 0;
+  }
 
   const rawText = record.text || '';
   const text = rawText.toLowerCase();
 
-  // 1. Check Links and Domains
+  // 1. Check Links and Domains for relevant categories
   if (record.links && record.links.length > 0) {
     for (const link of record.links) {
       const url = (link.url || '').toLowerCase();
@@ -288,57 +460,82 @@ export function scoreSnippetCategories(record: XHistoryRecord): Array<{ category
       const title = (link.title || '').toLowerCase();
 
       // White paper domains or PDF extension
-      if (WHITE_PAPER_DOMAINS.some(d => domain.includes(d) || url.includes(d)) || url.endsWith('.pdf') || url.includes('.pdf?')) {
-        scores.white_paper += 6;
+      if (activeIds.has('white_paper')) {
+        if (WHITE_PAPER_DOMAINS.some(d => domain.includes(d) || url.includes(d)) || url.endsWith('.pdf') || url.includes('.pdf?')) {
+          scores.white_paper = (scores.white_paper || 0) + 6;
+        }
+        if (/\b(paper|arxiv|preprint|rfc|specification|research)\b/i.test(title)) {
+          scores.white_paper = (scores.white_paper || 0) + 4;
+        }
       }
 
       // Official announcements
-      if (OFFICIAL_ANNOUNCEMENT_DOMAINS.some(d => domain.includes(d) || url.includes(d))) {
-        scores.news_announcements += 4;
+      if (activeIds.has('news_announcements')) {
+        if (OFFICIAL_ANNOUNCEMENT_DOMAINS.some(d => domain.includes(d) || url.includes(d))) {
+          scores.news_announcements = (scores.news_announcements || 0) + 4;
+        }
       }
 
-      // Paper or preprints in link title
-      if (/\b(paper|arxiv|preprint|rfc|specification|research)\b/i.test(title)) {
-        scores.white_paper += 4;
-      }
       // GitHub repo links
-      if (domain.includes('github.com') || url.includes('github.com')) {
-        scores.project_demos += 3;
+      if (activeIds.has('project_demos')) {
+        if (domain.includes('github.com') || url.includes('github.com')) {
+          scores.project_demos = (scores.project_demos || 0) + 3;
+        }
       }
     }
   }
 
   // 2. Check Media Types
   if (record.media && record.media.length > 0) {
-    if (record.media.some(m => m.type === 'gif')) {
-      scores.memes_humour += 5;
+    if (activeIds.has('memes_humour') && record.media.some(m => m.type === 'gif')) {
+      scores.memes_humour = (scores.memes_humour || 0) + 5;
     }
     if (record.media.some(m => m.type === 'video')) {
-      if (/\b(look what|built|demo|hack)\b/i.test(text)) {
-        scores.project_demos += 4;
-      } else if (/\b(debate|protest|parliament)\b/i.test(text)) {
-        scores.polemics_debate += 4;
+      if (activeIds.has('project_demos') && /\b(look what|built|demo|hack)\b/i.test(text)) {
+        scores.project_demos = (scores.project_demos || 0) + 4;
+      } else if (activeIds.has('polemics_debate') && /\b(debate|protest|parliament)\b/i.test(text)) {
+        scores.polemics_debate = (scores.polemics_debate || 0) + 4;
       }
     }
   }
 
-  // 3. Check Regex Patterns for all 10 categories
+  // 3. Check Regex Patterns for canonical categories
   for (const [cat, regexList] of Object.entries(PATTERNS)) {
-    const category = cat as ContentFilterCategory;
-    for (const rx of regexList) {
-      if (rx.test(rawText) || rx.test(text)) {
-        scores[category] += 4;
+    if (activeIds.has(cat as ContentFilterCategory)) {
+      for (const rx of regexList) {
+        if (rx.test(rawText) || rx.test(text)) {
+          scores[cat] = (scores[cat] || 0) + 4;
+        }
       }
     }
   }
 
-  // 4. Fallback Rule: "If any content is outside then add it to 'Promotional Pitches & Others'"
-  const maxScore = Math.max(...Object.values(scores));
+  // 4. Check custom keywords defined on labels
+  for (const cat of ALL_CATEGORY_OPTIONS) {
+    if (cat.keywords && Array.isArray(cat.keywords) && cat.keywords.length > 0) {
+      for (const kw of cat.keywords) {
+        const cleanKw = kw.trim().toLowerCase();
+        if (cleanKw.length > 1 && (text.includes(cleanKw) || rawText.toLowerCase().includes(cleanKw))) {
+          scores[cat.id] = (scores[cat.id] || 0) + 5;
+        }
+      }
+    }
+  }
+
+  // 5. Fallback Rule: "If any content is outside then absorb into fallback category"
+  const maxScore = Math.max(...Object.values(scores), 0);
   if (maxScore === 0) {
-    scores.promotional_pitches_others = 1;
+    if (activeIds.has('promotional_pitches_others')) {
+      scores.promotional_pitches_others = 1;
+    } else if (ALL_CATEGORY_OPTIONS.length > 0) {
+      // Pick first noise category or first category
+      const fallback = ALL_CATEGORY_OPTIONS.find(o => o.type === 'noise') || ALL_CATEGORY_OPTIONS[0];
+      if (fallback) scores[fallback.id] = 1;
+    }
   }
 
   const result = Object.entries(scores)
+    .filter(([catId]) => activeIds.has(catId as ContentFilterCategory))
     .map(([category, score]) => ({ category: category as ContentFilterCategory, score }))
     .filter(item => item.score > 0)
     .sort((a, b) => b.score - a.score);

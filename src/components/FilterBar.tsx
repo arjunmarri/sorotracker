@@ -10,9 +10,11 @@ import {
   List, 
   Tag,
   Layers,
-  Type
+  Type,
+  Globe,
+  SlidersHorizontal
 } from 'lucide-react';
-import { ContentFilterCategory, SubTopic, ReaderFontSize, SortOption } from '../types';
+import { ContentFilterCategory, SubTopic, ReaderFontSize, SortOption, ContentFilterOption } from '../types';
 import { TopicClusterGroup } from '../lib/topicClustering';
 import { ALL_CATEGORY_OPTIONS } from '../lib/contentFilter';
 
@@ -44,14 +46,21 @@ interface FilterBarProps {
   availableDomains?: Array<[string, number]>;
   availableAuthors: Array<[string, number]>;
   categoryCounts?: Record<ContentFilterCategory, number>;
+  categories?: ContentFilterOption[];
   totalCount: number;
   filteredCount: number;
+  isFilterSectionOpen?: boolean;
+  onToggleFilterSection?: () => void;
+  activeContentFilterCount?: number;
   onClearFilters: () => void;
 }
 
 const FilterBarComponent: React.FC<FilterBarProps> = ({
   searchQuery,
   onSearchChange,
+  selectedDomain = '',
+  onDomainChange,
+  availableDomains = [],
   selectedAuthor,
   onAuthorChange,
   selectedCategory,
@@ -74,12 +83,17 @@ const FilterBarComponent: React.FC<FilterBarProps> = ({
   onFontSizeChange,
   availableAuthors,
   categoryCounts,
+  categories,
   totalCount,
   filteredCount,
+  isFilterSectionOpen,
+  onToggleFilterSection,
+  activeContentFilterCount = 0,
   onClearFilters
 }) => {
+  const activeCategories = categories || ALL_CATEGORY_OPTIONS;
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const hasActiveFilters = searchQuery || selectedAuthor || selectedCategory || selectedTopic || selectedCluster || selectedSubTopic || hasLinksOnly || hasMediaOnly;
+  const hasActiveFilters = searchQuery || selectedAuthor || selectedDomain || selectedCategory || selectedTopic || selectedCluster || selectedSubTopic || hasLinksOnly || hasMediaOnly;
 
   // Listen for '/' key to quickly focus the search bar (Linear / GitHub navigation pattern)
   useEffect(() => {
@@ -244,6 +258,29 @@ const FilterBarComponent: React.FC<FilterBarProps> = ({
             <span>Has Images</span>
           </button>
 
+          {/* Quick Filter: Content Noise Filtering */}
+          {onToggleFilterSection && (
+            <button
+              id="filter-noise-toggle-btn"
+              type="button"
+              onClick={onToggleFilterSection}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition cursor-pointer text-xs ${
+                isFilterSectionOpen || (activeContentFilterCount > 0)
+                  ? 'bg-slate-200/90 text-slate-900 border-slate-300 font-semibold shadow-2xs'
+                  : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+              }`}
+              title="Toggle content noise category rules (Memes, Pitches, Polemics)"
+            >
+              <SlidersHorizontal className="w-3 h-3 text-slate-700" />
+              <span>Noise Filter</span>
+              {activeContentFilterCount > 0 && (
+                <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-amber-200 text-amber-900 font-bold">
+                  {activeContentFilterCount}
+                </span>
+              )}
+            </button>
+          )}
+
           {/* Author Filter Dropdown */}
           <div className="relative">
             <select
@@ -261,6 +298,30 @@ const FilterBarComponent: React.FC<FilterBarProps> = ({
             <Filter className="w-3 h-3 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
 
+          {/* Domain Filter Dropdown */}
+          {availableDomains && availableDomains.length > 0 && (
+            <div className="relative">
+              <select
+                id="filter-domain-select"
+                value={selectedDomain}
+                onChange={(e) => onDomainChange && onDomainChange(e.target.value)}
+                className={`border rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-slate-800 cursor-pointer appearance-none pr-6 font-mono text-[11px] transition ${
+                  selectedDomain
+                    ? 'bg-slate-200/90 text-slate-800 border-slate-300 font-semibold shadow-2xs'
+                    : 'bg-white border-slate-200 text-slate-800'
+                }`}
+              >
+                <option value="">All Domains</option>
+                {availableDomains.map(([domain, count]) => (
+                  <option key={domain} value={domain}>
+                    {domain} ({count})
+                  </option>
+                ))}
+              </select>
+              <Globe className={`w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none ${selectedDomain ? 'text-slate-700' : 'text-slate-400'}`} />
+            </div>
+          )}
+
           {/* Category / Label Filter Dropdown */}
           <div className="relative">
             <select
@@ -274,7 +335,7 @@ const FilterBarComponent: React.FC<FilterBarProps> = ({
             >
               <option value="">All Labels</option>
               <optgroup label="High-Signal & Productive">
-                {ALL_CATEGORY_OPTIONS.filter(o => o.type === 'high_signal').map((cat) => {
+                {activeCategories.filter(o => o.type === 'high_signal').map((cat) => {
                   const count = categoryCounts ? categoryCounts[cat.id] : undefined;
                   return (
                     <option key={cat.id} value={cat.id}>
@@ -284,7 +345,7 @@ const FilterBarComponent: React.FC<FilterBarProps> = ({
                 })}
               </optgroup>
               <optgroup label="Noise / Casual">
-                {ALL_CATEGORY_OPTIONS.filter(o => o.type === 'noise').map((cat) => {
+                {activeCategories.filter(o => o.type === 'noise').map((cat) => {
                   const count = categoryCounts ? categoryCounts[cat.id] : undefined;
                   return (
                     <option key={cat.id} value={cat.id}>
@@ -300,12 +361,29 @@ const FilterBarComponent: React.FC<FilterBarProps> = ({
           {/* Active Category Badge */}
           {selectedCategory && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 border border-slate-300 text-xs font-semibold shadow-2xs">
-              <span>Label: {ALL_CATEGORY_OPTIONS.find(c => c.id === selectedCategory)?.label || selectedCategory}</span>
+              <span>Label: {activeCategories.find(c => c.id === selectedCategory)?.label || selectedCategory}</span>
               {onCategoryChange && (
                 <button
                   onClick={() => onCategoryChange(null)}
                   className="hover:text-rose-600 text-slate-500 cursor-pointer"
                   title="Clear Category Filter"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </span>
+          )}
+
+          {/* Active Domain Badge */}
+          {selectedDomain && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 border border-slate-300 text-xs font-semibold shadow-2xs">
+              <Globe className="w-3 h-3 text-slate-600" />
+              <span>Domain: {selectedDomain}</span>
+              {onDomainChange && (
+                <button
+                  onClick={() => onDomainChange('')}
+                  className="hover:text-rose-600 text-slate-500 cursor-pointer"
+                  title="Clear Domain Filter"
                 >
                   <X className="w-3 h-3" />
                 </button>

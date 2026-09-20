@@ -32,7 +32,7 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
   onOpenImportJson
 }) => {
   const [activeTab, setActiveTab] = useState<ExtensionDrawerTab>(defaultTab);
-  const [browserGuide, setBrowserGuide] = useState<'firefox' | 'chrome'>('firefox');
+  const [browserGuide, setBrowserGuide] = useState<'edge' | 'chrome' | 'firefox'>('edge');
   const [extensionFiles, setExtensionFiles] = useState<Record<string, string>>({});
   const [binaryFiles, setBinaryFiles] = useState<Record<string, string>>({});
   const [authToken, setAuthToken] = useState<string>('');
@@ -95,13 +95,15 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  const handleDownloadZip = async (targetBrowser: 'firefox' | 'chrome' = 'firefox') => {
+  const handleDownloadZip = async (targetBrowser: 'edge' | 'chrome' | 'firefox' = 'edge') => {
     setIsPackaging(true);
     try {
       const currentOrigin = typeof window !== 'undefined' ? window.location.origin : undefined;
       const blob = await packageExtensionZip(extensionFiles, binaryFiles, targetBrowser, currentOrigin, authToken);
-      const filename = targetBrowser === 'firefox' 
-        ? 'sorotrack-firefox.zip' 
+      const filename = targetBrowser === 'edge'
+        ? 'sorotrack-edge.zip'
+        : targetBrowser === 'firefox'
+        ? 'sorotrack-firefox.zip'
         : 'sorotrack-chrome.zip';
       downloadBlob(blob, filename);
       setDownloadSuccess(true);
@@ -144,7 +146,7 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
                   Browser Extension
                 </h2>
                 <p className="text-xs text-slate-500 font-sans mt-0.5">
-                  Download the SoroTrack browser extension for Firefox or Chrome
+                  Download the SoroTrack browser extension for Microsoft Edge, Chrome, or Firefox
                 </p>
               </div>
             </div>
@@ -229,17 +231,19 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
                   </div>
 
                   <div className="pt-2 space-y-2.5">
+                    {/* Microsoft Edge */}
                     <button
-                      id="drawer-download-firefox-btn"
-                      onClick={() => handleDownloadZip('firefox')}
+                      id="drawer-download-edge-btn"
+                      onClick={() => handleDownloadZip('edge')}
                       disabled={isPackaging}
-                      className="w-full inline-flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-900 border border-slate-300 text-xs font-mono uppercase tracking-wider font-semibold shadow-2xs transition disabled:opacity-50 cursor-pointer"
+                      className="w-full inline-flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-mono uppercase tracking-wider font-semibold shadow-2xs transition disabled:opacity-50 cursor-pointer"
                     >
                       <Download className={`w-4 h-4 ${isPackaging ? 'animate-bounce' : ''}`} />
-                      <span>{isPackaging ? 'Packaging...' : 'Download for Firefox (.zip)'}</span>
-                      <span className="text-base ml-1">🦊</span>
+                      <span>{isPackaging ? 'Packaging...' : 'Download for Microsoft Edge (.zip)'}</span>
+                      <span className="text-base ml-1">🌊</span>
                     </button>
 
+                    {/* Google Chrome / Brave */}
                     <button
                       id="drawer-download-chrome-btn"
                       onClick={() => handleDownloadZip('chrome')}
@@ -249,6 +253,18 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
                       <Download className="w-4 h-4 text-slate-600" />
                       <span>Download for Chrome / Brave (.zip)</span>
                       <span className="text-base ml-1">🌐</span>
+                    </button>
+
+                    {/* Mozilla Firefox */}
+                    <button
+                      id="drawer-download-firefox-btn"
+                      onClick={() => handleDownloadZip('firefox')}
+                      disabled={isPackaging}
+                      className="w-full inline-flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-mono uppercase tracking-wider font-semibold shadow-2xs transition disabled:opacity-50 cursor-pointer"
+                    >
+                      <Download className="w-4 h-4 text-slate-600" />
+                      <span>Download for Firefox (.zip)</span>
+                      <span className="text-base ml-1">🦊</span>
                     </button>
                   </div>
                 </div>
@@ -362,31 +378,116 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
                 {/* Browser Guide Selector */}
                 <div className="flex gap-2">
                   <button
-                    id="setup-browser-firefox"
-                    onClick={() => setBrowserGuide('firefox')}
-                    className={`flex-1 p-3 rounded-xl border flex items-center justify-center gap-2 font-sans text-xs font-semibold transition cursor-pointer ${
-                      browserGuide === 'firefox'
+                    id="setup-browser-edge"
+                    onClick={() => setBrowserGuide('edge')}
+                    className={`flex-1 p-2.5 rounded-xl border flex items-center justify-center gap-1.5 font-sans text-xs font-semibold transition cursor-pointer ${
+                      browserGuide === 'edge'
                         ? 'bg-slate-200/90 border-slate-300 text-slate-900 shadow-2xs'
                         : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    <span className="text-base">🦊</span>
-                    <span>Mozilla Firefox</span>
+                    <span className="text-base">🌊</span>
+                    <span>Microsoft Edge</span>
                   </button>
 
                   <button
                     id="setup-browser-chrome"
                     onClick={() => setBrowserGuide('chrome')}
-                    className={`flex-1 p-3 rounded-xl border flex items-center justify-center gap-2 font-sans text-xs font-semibold transition cursor-pointer ${
+                    className={`flex-1 p-2.5 rounded-xl border flex items-center justify-center gap-1.5 font-sans text-xs font-semibold transition cursor-pointer ${
                       browserGuide === 'chrome'
                         ? 'bg-slate-200/90 border-slate-300 text-slate-900 shadow-2xs'
                         : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     <span className="text-base">🌐</span>
-                    <span>Chrome / Edge / Brave</span>
+                    <span>Chrome / Brave</span>
+                  </button>
+
+                  <button
+                    id="setup-browser-firefox"
+                    onClick={() => setBrowserGuide('firefox')}
+                    className={`flex-1 p-2.5 rounded-xl border flex items-center justify-center gap-1.5 font-sans text-xs font-semibold transition cursor-pointer ${
+                      browserGuide === 'firefox'
+                        ? 'bg-slate-200/90 border-slate-300 text-slate-900 shadow-2xs'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <span className="text-base">🦊</span>
+                    <span>Firefox</span>
                   </button>
                 </div>
+
+                {/* Microsoft Edge Guide */}
+                {browserGuide === 'edge' && (
+                  <div className="space-y-4 bg-slate-50 border border-slate-200 rounded-xl p-5 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-sans font-bold text-slate-900">
+                        Step-by-step Microsoft Edge Installation:
+                      </h3>
+                      <span className="text-[11px] font-mono bg-sky-100 text-sky-800 px-2 py-0.5 rounded font-semibold">
+                        Chromium MV3
+                      </span>
+                    </div>
+
+                    <ol className="space-y-3.5 pl-1">
+                      <li className="flex items-start gap-3">
+                        <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">1</span>
+                        <div>
+                          <p className="font-semibold text-slate-900 font-sans">Extract the downloaded ZIP:</p>
+                          <p className="text-slate-600 mt-0.5 font-sans">
+                            Extract <code className="text-slate-800 font-mono text-[11px] bg-white px-1 py-0.5 rounded border border-slate-200">sorotrack-edge.zip</code> into a local directory on your disk.
+                          </p>
+                        </div>
+                      </li>
+
+                      <li className="flex items-start gap-3">
+                        <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">2</span>
+                        <div>
+                          <p className="font-semibold text-slate-900 font-sans">Open Edge Extensions Management:</p>
+                          <p className="text-slate-600 mt-0.5 font-sans">
+                            In a new Edge tab, navigate to:
+                          </p>
+                          <code className="block mt-1 bg-white border border-slate-200 text-slate-800 px-2 py-1 rounded font-mono text-[11px] select-all">
+                            edge://extensions
+                          </code>
+                          <p className="text-slate-500 text-[11px] mt-0.5">
+                            (Or click the <strong className="text-slate-700">...</strong> menu in top-right &gt; <strong className="text-slate-700">Extensions</strong> &gt; <strong className="text-slate-700">Manage extensions</strong>).
+                          </p>
+                        </div>
+                      </li>
+
+                      <li className="flex items-start gap-3">
+                        <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">3</span>
+                        <div>
+                          <p className="font-semibold text-slate-900 font-sans">Enable Developer mode & Load unpacked:</p>
+                          <p className="text-slate-600 mt-0.5 font-sans">
+                            In the left sidebar, turn on the <strong className="text-slate-900">"Developer mode"</strong> toggle. Then click the <strong className="text-slate-900">"Load unpacked"</strong> button at the top and select the extracted folder.
+                          </p>
+                        </div>
+                      </li>
+
+                      <li className="flex items-start gap-3">
+                        <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">4</span>
+                        <div>
+                          <p className="font-semibold text-slate-900 font-sans">Pin to Edge Toolbar (Optional):</p>
+                          <p className="text-slate-600 mt-0.5 font-sans">
+                            Click the Extensions puzzle icon in the Edge toolbar and click the eye icon next to SoroTrack to keep it visible for one-click access.
+                          </p>
+                        </div>
+                      </li>
+
+                      <li className="flex items-start gap-3">
+                        <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">5</span>
+                        <div>
+                          <p className="font-semibold text-slate-900 font-sans">Navigate to your reading history:</p>
+                          <p className="text-slate-600 mt-0.5 font-sans">
+                            Go to <a href="https://x.com/i/history" target="_blank" rel="noopener noreferrer" className="text-slate-900 underline inline-flex items-center gap-0.5 font-mono text-[11px]">https://x.com/i/history <ExternalLink className="w-3 h-3" /></a> or bookmarks. The floating HUD appears automatically. Click <strong className="text-slate-900 font-mono text-xs">"Sync to SoroTrack"</strong> to stream records into your database.
+                          </p>
+                        </div>
+                      </li>
+                    </ol>
+                  </div>
+                )}
 
                 {/* Firefox Guide */}
                 {browserGuide === 'firefox' && (
