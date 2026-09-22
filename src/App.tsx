@@ -8,7 +8,7 @@ import { Header } from './components/Header';
 import { SummarySection } from './components/SummarySection';
 import { FilterBar } from './components/FilterBar';
 import { RecordCard } from './components/RecordCard';
-import { XHistoryRecord, AISummaryResult, UserProfile, SiteSettings, SiteTheme, ContentFilterCategory, SubTopic, ReaderFontSize, SortOption } from './types';
+import { XHistoryRecord, AISummaryResult, UserProfile, SiteSettings, SiteTheme, ContentFilterCategory, SubTopic, ReaderFontSize, SortOption, TopContentItem, AgentRunStatus, SubmenuType } from './types';
 import { ExtensionDrawer, ExtensionDrawerTab } from './components/ExtensionDrawer';
 import { AdminPanel } from './components/AdminPanel';
 import { AuthModal } from './components/AuthModal';
@@ -20,8 +20,12 @@ import { buildSubTopicsFromSnippets, filterRecordsBySubTopic } from './lib/subto
 import { clusterTopics, recordMatchesCluster, TopicClusterGroup } from './lib/topicClustering';
 import { TopicsSidebar } from './components/TopicsSidebar';
 import { DedicatedCategoryPage } from './components/DedicatedCategoryPage';
+import { TrendView } from './components/TrendView';
+import { TopContentView } from './components/TopContentView';
 import { SearchPage } from './components/SearchPage';
 import { ClearSessionModal } from './components/ClearSessionModal';
+import { RecycledBinModal } from './components/RecycledBinModal';
+import { CleanDashboardBar } from './components/CleanDashboardBar';
 import { onUserChange, logoutUser } from './lib/auth';
 import { applyThemeToDOM } from './lib/theme';
 import { 
@@ -44,7 +48,11 @@ import {
   Trash2,
   X,
   Search,
-  ArrowLeft
+  ArrowLeft,
+  Bookmark,
+  TrendingUp,
+  LayoutList,
+  Bot
 } from 'lucide-react';
 
 export default function App() {
@@ -78,11 +86,21 @@ export default function App() {
   const [isQuotaBannerDismissed, setIsQuotaBannerDismissed] = useState(false);
 
   // Notifications
-  const [toast, setToast] = useState<{ message: string; type?: 'info' | 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ 
+    message: string; 
+    type?: 'info' | 'success' | 'error';
+    action?: { label: string; onClick: () => void };
+  } | null>(null);
 
-  const showToast = useCallback((message: string, type: 'info' | 'success' | 'error' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
+  const showToast = useCallback((
+    message: string, 
+    type: 'info' | 'success' | 'error' = 'success',
+    action?: { label: string; onClick: () => void }
+  ) => {
+    setToast({ message, type, action });
+    setTimeout(() => {
+      setToast(current => (current?.message === message ? null : current));
+    }, action ? 7000 : 3500);
   }, []);
 
   // User Authentication & Admin Management
@@ -146,9 +164,39 @@ export default function App() {
   const [topicKeywords, setTopicKeywords] = useState<string[]>([]);
   const [hasLinksOnly, setHasLinksOnly] = useState(false);
   const [hasMediaOnly, setHasMediaOnly] = useState(false);
-  const [sortBy, setSortBy] = useState<SortOption>('latest_date');
+  const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [viewMode, setViewMode] = useState<'cards' | 'compact'>('cards');
-  const [isAiBriefingOpen, setIsAiBriefingOpen] = useState(false);
+  
+  // Submenu Navigation State ('timeline' | 'trend' | 'read-later' | 'top-content' | 'recycled-bin')
+  const [activeSubmenu, setActiveSubmenu] = useState<SubmenuType>('timeline');
+
+  // Autonomous SoroTrack Agent & Top Content State
+  const [topContentItems, setTopContentItems] = useState<TopContentItem[]>([]);
+  const [agentStatus, setAgentStatus] = useState<AgentRunStatus>({
+    isRunning: false,
+    lastRunStatus: 'idle',
+    totalItemsFound: 0,
+    mode: 'cloud',
+    autoScanIntervalMin: 60
+  });
+  const [isLoadingAgent, setIsLoadingAgent] = useState(false);
+
+  const handleSelectSubmenu = useCallback((menu: SubmenuType) => {
+    setActiveSubmenu(menu);
+    if (menu === 'read-later') {
+      setIsReadLaterOnly(true);
+    } else {
+      setIsReadLaterOnly(false);
+    }
+    setActiveCategoryPageId(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const handleToggleTrendSubmenu = useCallback(() => {
+    setActiveSubmenu(prev => prev === 'trend' ? 'timeline' : 'trend');
+    setActiveCategoryPageId(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
 
   // Pagination / Infinite Scrolling state (Load 25 latest snippets by default, rest on scroll)
   const [visibleCount, setVisibleCount] = useState<number>(25);
@@ -233,6 +281,37 @@ export default function App() {
   const handleRestoreAllSnippets = useCallback(() => {
     setReadSnippetIds([]);
     showToast('Restored all snippets to active archive', 'info');
+  }, [showToast]);
+
+  // Read Later / To-Read Status (persisted in localStorage under 'to-read')
+  const [toReadSnippetIds, setToReadSnippetIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('to-read');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [isReadLaterOnly, setIsReadLaterOnly] = useState<boolean>(false);
+
+  const toReadSnippetSet = useMemo(() => new Set(toReadSnippetIds), [toReadSnippetIds]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('to-read', JSON.stringify(toReadSnippetIds));
+    } catch {}
+  }, [toReadSnippetIds]);
+
+  const handleToggleReadLater = useCallback((id: string) => {
+    setToReadSnippetIds(prev => {
+      if (prev.includes(id)) {
+        showToast('Removed snippet from Read Later list', 'info');
+        return prev.filter(x => x !== id);
+      } else {
+        showToast('Saved snippet to Read Later list', 'success');
+        return [...prev, id];
+      }
+    });
   }, [showToast]);
 
   // Content Filters for pure technical & productive consumption
@@ -467,6 +546,73 @@ export default function App() {
     fetchSettings();
   }, [fetchSettings]);
 
+  // Fetch Autonomous Agent Top Content
+  const fetchTopContent = useCallback(async () => {
+    try {
+      const res = await fetch('/api/agent/top-content');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.items)) {
+          setTopContentItems(data.items);
+        }
+        if (data.status) {
+          setAgentStatus(data.status);
+        }
+      }
+    } catch (err) {
+      console.warn('[App] Error fetching top content:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTopContent();
+  }, [fetchTopContent]);
+
+  // Run SoroTrack Autonomous Agent to scan X
+  const handleRunAgent = useCallback(async (forceRefresh = false) => {
+    setIsLoadingAgent(true);
+    setAgentStatus(prev => ({ ...prev, isRunning: true }));
+    try {
+      const res = await fetch('/api/agent/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ forceRefresh })
+      });
+      const data = await res.json();
+      if (res.ok && data.items) {
+        setTopContentItems(data.items);
+        if (data.status) setAgentStatus(data.status);
+        showToast(data.message || `Autonomous agent found ${data.items.length} trending topics on 𝕏!`, 'success');
+      } else {
+        showToast(data.error || 'Agent scan failed', 'error');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to communicate with autonomous agent', 'error');
+    } finally {
+      setIsLoadingAgent(false);
+    }
+  }, [showToast]);
+
+  // Save trending topic directly to user's permanent timeline
+  const handleSaveToTimeline = useCallback(async (item: TopContentItem) => {
+    try {
+      const res = await fetch('/api/agent/save-to-timeline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        await fetchRecords();
+        showToast(`"${item.topic}" saved to your permanent SoroTrack timeline!`, 'success');
+      } else {
+        showToast(data.error || 'Failed to save item', 'error');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Error saving item to archive', 'error');
+    }
+  }, [fetchRecords, showToast]);
+
   // Handle Update Site Settings
   const handleUpdateSettings = async (newSettings: Partial<SiteSettings>) => {
     const res = await fetch('/api/settings', {
@@ -491,6 +637,18 @@ export default function App() {
 
   const handleThemeChange = (theme: SiteTheme) => {
     applyThemeToDOM(theme);
+  };
+
+  const handleToggleTheme = async () => {
+    const isCurrentlyDark = siteSettings.theme === 'midnight-dark';
+    const nextTheme: SiteTheme = isCurrentlyDark ? 'warm-neutral' : 'midnight-dark';
+    try {
+      await handleUpdateSettings({ theme: nextTheme });
+      showToast(`Switched to ${isCurrentlyDark ? 'Light' : 'Dark'} theme`, 'info');
+    } catch {
+      applyThemeToDOM(nextTheme);
+      setSiteSettings(prev => ({ ...prev, theme: nextTheme }));
+    }
   };
 
   // Handle Export Full Archive as JSON
@@ -632,6 +790,8 @@ export default function App() {
 
   const handleBackToTimeline = () => {
     setActiveCategoryPageId(null);
+    setActiveSubmenu('timeline');
+    setIsReadLaterOnly(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -694,6 +854,8 @@ export default function App() {
     setTopicKeywords([]);
     setHasLinksOnly(false);
     setHasMediaOnly(false);
+    setIsReadLaterOnly(false);
+    setActiveSubmenu('timeline');
   };
 
   const handleSelectCategory = useCallback((cat: ContentFilterCategory) => {
@@ -763,11 +925,17 @@ export default function App() {
     return linksFilteredRecords.filter(r => Boolean(r.media && r.media.length > 0));
   }, [linksFilteredRecords, hasMediaOnly]);
 
+  // Read Later / To-Read list filter if enabled
+  const readLaterFilteredRecords = useMemo(() => {
+    if (!isReadLaterOnly) return mediaFilteredRecords;
+    return mediaFilteredRecords.filter(r => toReadSnippetSet.has(r.id));
+  }, [mediaFilteredRecords, isReadLaterOnly, toReadSnippetSet]);
+
   // In-line search query filter
   const searchFilteredRecords = useMemo(() => {
-    if (!debouncedSearchQuery.trim()) return mediaFilteredRecords;
+    if (!debouncedSearchQuery.trim()) return readLaterFilteredRecords;
     const q = debouncedSearchQuery.toLowerCase().trim();
-    return mediaFilteredRecords.filter(r => {
+    return readLaterFilteredRecords.filter(r => {
       if (r.text && r.text.toLowerCase().includes(q)) return true;
       if (r.authorName && r.authorName.toLowerCase().includes(q)) return true;
       if (r.authorHandle && r.authorHandle.toLowerCase().includes(q)) return true;
@@ -779,43 +947,31 @@ export default function App() {
       )) return true;
       return false;
     });
-  }, [mediaFilteredRecords, debouncedSearchQuery]);
+  }, [readLaterFilteredRecords, debouncedSearchQuery]);
 
   // Sort records based on selected SortOption
   const displayedRecords = useMemo(() => {
     const list = [...searchFilteredRecords];
     list.sort((a, b) => {
       switch (sortBy) {
+        case 'newest': {
+          const timeA = new Date(a.scannedAt || a.syncedAt || a.createdAt || 0).getTime();
+          const timeB = new Date(b.scannedAt || b.syncedAt || b.createdAt || 0).getTime();
+          return timeB - timeA;
+        }
         case 'latest_date':
           return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
         case 'oldest_date':
           return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
-        case 'latest_synced': {
-          const timeA = new Date(a.syncedAt || a.scannedAt || a.createdAt || 0).getTime();
-          const timeB = new Date(b.syncedAt || b.scannedAt || b.createdAt || 0).getTime();
-          return timeB - timeA;
-        }
-        case 'oldest_synced': {
-          const timeA = new Date(a.syncedAt || a.scannedAt || a.createdAt || 0).getTime();
-          const timeB = new Date(b.syncedAt || b.scannedAt || b.createdAt || 0).getTime();
-          return timeA - timeB;
-        }
-        case 'newest': {
-          const timeA = new Date(a.scannedAt || a.createdAt || 0).getTime();
-          const timeB = new Date(b.scannedAt || b.createdAt || 0).getTime();
-          return timeB - timeA;
-        }
-        case 'oldest': {
-          const timeA = new Date(a.scannedAt || a.createdAt || 0).getTime();
-          const timeB = new Date(b.scannedAt || b.createdAt || 0).getTime();
-          return timeA - timeB;
-        }
         case 'likes':
           return (b.metrics?.likes || 0) - (a.metrics?.likes || 0);
         case 'retweets':
           return (b.metrics?.retweets || 0) - (a.metrics?.retweets || 0);
-        default:
-          return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+        default: {
+          const timeA = new Date(a.scannedAt || a.syncedAt || a.createdAt || 0).getTime();
+          const timeB = new Date(b.scannedAt || b.syncedAt || b.createdAt || 0).getTime();
+          return timeB - timeA;
+        }
       }
     });
     return list;
@@ -909,18 +1065,196 @@ export default function App() {
     showToast(`Marked ${currentIds.length} snippet${currentIds.length > 1 ? 's' : ''} as read`, 'success');
   };
 
+  // Clean Dashboard & Recycled Bin State
+  const [selectedSnippetIds, setSelectedSnippetIds] = useState<Set<string>>(new Set());
+  const [isRecycledBinOpen, setIsRecycledBinOpen] = useState(false);
+  const [recycledCount, setRecycledCount] = useState<number>(0);
+  const [isSendingToRecycle, setIsSendingToRecycle] = useState(false);
+
+  // Fetch recycled records count
+  const fetchRecycledCount = useCallback(async () => {
+    try {
+      const res = await fetch('/api/records/recycled');
+      if (res.ok) {
+        const data = await res.json();
+        setRecycledCount(data.count || 0);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchRecycledCount();
+  }, [fetchRecycledCount]);
+
+  // Determine if clean dashboard filter mode is active (filtered by author, domain, or label)
+  const isCleanDashboardFilterActive = Boolean(
+    selectedAuthor || 
+    selectedDomain || 
+    selectedCategory || 
+    (activeContentFilters && activeContentFilters.length > 0)
+  );
+
+  // Build active filter summary text
+  const activeFilterSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (selectedAuthor) parts.push(`Author: @${selectedAuthor.replace(/^@/, '')}`);
+    if (selectedDomain) parts.push(`Domain: ${selectedDomain}`);
+    if (selectedCategory) parts.push(`Label: ${selectedCategory.replace('_', ' ')}`);
+    if (activeContentFilters && activeContentFilters.length > 0 && !selectedCategory) {
+      parts.push(`Labels (${activeContentFilters.length})`);
+    }
+    return parts.join(' • ') || 'Filtered Content';
+  }, [selectedAuthor, selectedDomain, selectedCategory, activeContentFilters]);
+
+  // Reset selected snippet IDs when filters change
+  useEffect(() => {
+    setSelectedSnippetIds(new Set());
+  }, [selectedAuthor, selectedDomain, selectedCategory, activeContentFilters, debouncedSearchQuery]);
+
+  // Matching snippet IDs on current filtered dashboard
+  const matchingSnippetIds = useMemo(() => displayedRecords.map(r => r.id), [displayedRecords]);
+
+  // Selected count strictly among matching snippets
+  const selectedCount = useMemo(() => {
+    let count = 0;
+    for (const id of matchingSnippetIds) {
+      if (selectedSnippetIds.has(id)) count++;
+    }
+    return count;
+  }, [matchingSnippetIds, selectedSnippetIds]);
+
+  const isAllSelected = matchingSnippetIds.length > 0 && selectedCount === matchingSnippetIds.length;
+
+  const handleToggleSelectAll = useCallback(() => {
+    if (isAllSelected) {
+      setSelectedSnippetIds(new Set());
+    } else {
+      setSelectedSnippetIds(new Set(matchingSnippetIds));
+    }
+  }, [isAllSelected, matchingSnippetIds]);
+
+  const handleToggleSelectSnippet = useCallback((id: string) => {
+    setSelectedSnippetIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleClearSelection = useCallback(() => {
+    setSelectedSnippetIds(new Set());
+  }, []);
+
+  // Restore records from recycled bin
+  const handleRestoreRecords = useCallback(async (ids: string[]) => {
+    try {
+      const res = await fetch('/api/records/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await fetchRecords();
+      await fetchRecycledCount();
+      showToast(`Restored ${ids.length} snippet${ids.length > 1 ? 's' : ''} to dashboard.`, 'success');
+    } catch (err: any) {
+      showToast(`Failed to restore snippets: ${err.message}`, 'error');
+    }
+  }, [fetchRecords, fetchRecycledCount, showToast]);
+
+  // Send records to recycled bin
+  const handleSendToRecycleBin = useCallback(async () => {
+    const idsToSend = selectedSnippetIds.size > 0 
+      ? Array.from(selectedSnippetIds) 
+      : matchingSnippetIds;
+    if (idsToSend.length === 0) return;
+
+    setIsSendingToRecycle(true);
+    try {
+      const res = await fetch('/api/records/recycle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: idsToSend })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const count = data.count || idsToSend.length;
+      
+      // Remove from active records list
+      setRecords(prev => prev.filter(r => !idsToSend.includes(r.id)));
+      setSelectedSnippetIds(new Set());
+      await fetchRecycledCount();
+
+      showToast(
+        `Sent ${count} snippet${count > 1 ? 's' : ''} to Recycled Bin to clean dashboard.`,
+        'success',
+        {
+          label: 'Undo',
+          onClick: async () => {
+            await handleRestoreRecords(idsToSend);
+          }
+        }
+      );
+    } catch (err: any) {
+      showToast(`Failed to send to recycled bin: ${err.message}`, 'error');
+    } finally {
+      setIsSendingToRecycle(false);
+    }
+  }, [selectedSnippetIds, matchingSnippetIds, fetchRecycledCount, handleRestoreRecords, showToast]);
+
+  // Permanently delete individual records from recycled bin
+  const handlePermanentDelete = useCallback(async (ids: string[]) => {
+    try {
+      for (const id of ids) {
+        await fetch(`/api/records/${id}`, { method: 'DELETE' });
+      }
+      await fetchRecycledCount();
+      showToast(`Permanently deleted snippet.`, 'info');
+    } catch (err: any) {
+      showToast(`Failed to delete snippet: ${err.message}`, 'error');
+    }
+  }, [fetchRecycledCount, showToast]);
+
+  // Permanently empty recycled bin
+  const handleEmptyRecycleBin = useCallback(async () => {
+    try {
+      const res = await fetch('/api/records/recycled', { method: 'DELETE' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await fetchRecycledCount();
+      showToast(`Recycled Bin has been emptied.`, 'info');
+    } catch (err: any) {
+      showToast(`Failed to empty recycled bin: ${err.message}`, 'error');
+    }
+  }, [fetchRecycledCount, showToast]);
+
   return (
     <div className="min-h-screen bg-slate-50/60 dark:bg-stone-950 text-slate-900 flex flex-col font-sans selection:bg-slate-200">
       
       {/* Toast Notification */}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono text-white shadow-2xl animate-fade-in">
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono text-white shadow-2xl animate-fade-in max-w-md">
           {toast.type === 'error' ? (
-            <AlertCircle className="w-4 h-4 text-rose-400" />
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
           ) : (
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           )}
-          <span>{toast.message}</span>
+          <span className="flex-1">{toast.message}</span>
+          {toast.action && (
+            <button
+              type="button"
+              onClick={() => {
+                toast.action?.onClick();
+                setToast(null);
+              }}
+              className="px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] cursor-pointer transition shadow-2xs shrink-0"
+            >
+              {toast.action.label}
+            </button>
+          )}
         </div>
       )}
 
@@ -939,9 +1273,12 @@ export default function App() {
         onExportJson={handleExportJsonArchive}
         onOpenImportJson={() => handleOpenImportModal()}
         onLogoClick={handleBackToTimeline}
-        isAnonMode={isAnonMode}
-        onToggleAnonMode={handleToggleAnonMode}
         onOpenClearSession={() => setIsClearSessionModalOpen(true)}
+        recycledCount={recycledCount}
+        onOpenRecycledBin={() => setIsRecycledBinOpen(true)}
+        onOpenTopContent={() => handleSelectSubmenu('top-content')}
+        currentTheme={siteSettings.theme}
+        onToggleTheme={handleToggleTheme}
       />
 
       {/* Anon Mode Notification Banner */}
@@ -1008,20 +1345,134 @@ export default function App() {
           </div>
         )}
 
-        {/* Optional AI Summary Section (Toggled on demand so timeline starts clean at top) */}
-        {isAiBriefingOpen && (
-          <SummarySection
+        {/* Submenu Navigation Bar */}
+        <div id="app-submenu-bar" className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-stone-900 border border-slate-200 dark:border-stone-850 p-2 sm:p-2.5 rounded-2xl shadow-2xs">
+          <nav className="flex items-center gap-1.5 overflow-x-auto">
+            <button
+              id="submenu-timeline-tab"
+              type="button"
+              onClick={() => handleSelectSubmenu('timeline')}
+              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                activeSubmenu === 'timeline' && !activeCategoryPageId
+                  ? 'bg-slate-900 text-white font-semibold shadow-2xs dark:bg-white dark:text-stone-900'
+                  : 'text-slate-600 dark:text-stone-400 hover:bg-slate-100 dark:hover:bg-stone-800 hover:text-slate-900 dark:hover:text-stone-200'
+              }`}
+            >
+              <LayoutList className="w-3.5 h-3.5" />
+              <span>Timeline</span>
+              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
+                activeSubmenu === 'timeline' && !activeCategoryPageId
+                  ? 'bg-slate-800 dark:bg-stone-200 text-slate-200 dark:text-stone-800'
+                  : 'bg-slate-100 dark:bg-stone-800 text-slate-500 dark:text-stone-400'
+              }`}>
+                {records.length}
+              </span>
+            </button>
+
+            <button
+              id="submenu-trend-tab"
+              type="button"
+              onClick={() => handleSelectSubmenu('trend')}
+              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                activeSubmenu === 'trend'
+                  ? 'bg-emerald-600 text-white font-semibold shadow-2xs'
+                  : 'text-slate-600 dark:text-stone-400 hover:bg-slate-100 dark:hover:bg-stone-800 hover:text-slate-900 dark:hover:text-stone-200'
+              }`}
+            >
+              <TrendingUp className={`w-3.5 h-3.5 ${activeSubmenu === 'trend' ? 'text-white' : 'text-emerald-600 dark:text-emerald-400'}`} />
+              <span>Trend & Weekly Activity</span>
+            </button>
+
+            <button
+              id="submenu-top-content-tab"
+              type="button"
+              onClick={() => handleSelectSubmenu('top-content')}
+              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                activeSubmenu === 'top-content'
+                  ? 'bg-blue-600 text-white font-semibold shadow-2xs'
+                  : 'text-slate-600 dark:text-stone-400 hover:bg-slate-100 dark:hover:bg-stone-800 hover:text-slate-900 dark:hover:text-stone-200'
+              }`}
+            >
+              <Bot className={`w-3.5 h-3.5 ${activeSubmenu === 'top-content' ? 'text-white' : 'text-blue-600 dark:text-blue-400'}`} />
+              <span>Top Content</span>
+              {topContentItems.length > 0 && (
+                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
+                  activeSubmenu === 'top-content' ? 'bg-blue-700 text-white' : 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300'
+                }`}>
+                  {topContentItems.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              id="submenu-readlater-tab"
+              type="button"
+              onClick={() => handleSelectSubmenu('read-later')}
+              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                activeSubmenu === 'read-later'
+                  ? 'bg-amber-500 text-white font-semibold shadow-2xs'
+                  : 'text-slate-600 dark:text-stone-400 hover:bg-slate-100 dark:hover:bg-stone-800 hover:text-slate-900 dark:hover:text-stone-200'
+              }`}
+            >
+              <Bookmark className={`w-3.5 h-3.5 ${activeSubmenu === 'read-later' || toReadSnippetIds.length > 0 ? 'fill-current text-amber-300' : ''}`} />
+              <span>Read Later</span>
+              {toReadSnippetIds.length > 0 && (
+                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
+                  activeSubmenu === 'read-later' ? 'bg-amber-600 text-white' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
+                }`}>
+                  {toReadSnippetIds.length}
+                </span>
+              )}
+            </button>
+
+            {recycledCount > 0 && (
+              <button
+                id="submenu-recycled-bin-tab"
+                type="button"
+                onClick={() => setIsRecycledBinOpen(true)}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                title={`Recycled Bin (${recycledCount} items)`}
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                <span>Recycled Bin</span>
+                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-300">
+                  {recycledCount}
+                </span>
+              </button>
+            )}
+          </nav>
+
+          <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-stone-400 px-2 self-end sm:self-center">
+            <span className="font-mono text-[11px]">{records.length} items collected</span>
+          </div>
+        </div>
+
+        {/* Main Content Layout: Top Content View, Dedicated Trend Submenu, Dedicated Category Page, or Timeline View */}
+        {activeSubmenu === 'top-content' ? (
+          <TopContentView
+            items={topContentItems}
+            agentStatus={agentStatus}
+            isLoading={isLoadingAgent}
+            onRunAgent={handleRunAgent}
+            onSaveToTimeline={handleSaveToTimeline}
+            onToggleReadLater={handleToggleReadLater}
+            isReadLater={(id) => toReadSnippetIds.includes(id)}
+          />
+        ) : activeSubmenu === 'trend' ? (
+          <TrendView
+            records={records}
             summary={summary}
             isLoading={isSummarizing}
             onRefresh={() => handleGenerateSummary(true)}
             onAskQuestion={handleAskQuestion}
-            records={records}
-            onClose={() => setIsAiBriefingOpen(false)}
+            onBackToTimeline={handleBackToTimeline}
+            topicClusters={topicClusters}
+            onSelectCluster={(cluster) => {
+              handleSelectCluster(cluster);
+              setActiveSubmenu('timeline');
+            }}
           />
-        )}
-
-        {/* Main Content Layout: Timeline on Left, Topics Sidebar on Right, or Dedicated Category Page or Search Page */}
-        {currentCategoryPage ? (
+        ) : currentCategoryPage ? (
           <DedicatedCategoryPage
             category={currentCategoryPage}
             allCategories={topicClusters}
@@ -1036,6 +1487,8 @@ export default function App() {
             onSelectCategoryFilter={handleSelectCategory}
             readSnippetIds={readSnippetIds}
             onToggleRead={handleToggleReadSnippet}
+            toReadSnippetIds={toReadSnippetIds}
+            onToggleReadLater={handleToggleReadLater}
             initialSubTopic={selectedSubTopic}
             fontSize={readerFontSize}
           />
@@ -1080,6 +1533,11 @@ export default function App() {
               onToggleFilterSection={() => setIsFilterSectionOpen(prev => !prev)}
               activeContentFilterCount={activeContentFilters.length}
               onClearFilters={handleClearFilters}
+              isReadLaterOnly={isReadLaterOnly}
+              onToggleReadLaterOnly={() => setIsReadLaterOnly(prev => !prev)}
+              toReadCount={toReadSnippetIds.length}
+              isAiBriefingOpen={activeSubmenu === 'trend'}
+              onToggleAiBriefing={handleToggleTrendSubmenu}
             />
 
             {/* Expandable Content Filter Section when opened */}
@@ -1122,10 +1580,17 @@ export default function App() {
             )}
 
             {/* Active topic or filter chips if any are selected */}
-            {(selectedCluster || selectedSubTopic || selectedCategory || selectedDomain || selectedAuthor || hasLinksOnly || hasMediaOnly) && (
-              <div className="mb-4 p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between gap-3 text-xs">
+            {(selectedCluster || selectedSubTopic || selectedCategory || selectedDomain || selectedAuthor || hasLinksOnly || hasMediaOnly || isReadLaterOnly) && (
+              <div className="mb-4 p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between gap-3 text-xs shadow-2xs">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-slate-500 font-medium">Filtered by:</span>
+                  {isReadLaterOnly && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 font-semibold">
+                      <Bookmark className="w-3 h-3 text-amber-600 fill-amber-500" />
+                      Read Later ({toReadSnippetIds.length})
+                      <button onClick={() => setIsReadLaterOnly(false)} className="hover:text-rose-600 cursor-pointer" title="Exit Read Later view"><X className="w-3 h-3" /></button>
+                    </span>
+                  )}
                   {selectedCluster && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-800 font-medium">
                       Cluster: {selectedCluster.name}
@@ -1178,6 +1643,22 @@ export default function App() {
                   Clear filters
                 </button>
               </div>
+            )}
+
+            {/* Clean Dashboard Toolbar: Shown when user filters by authors, domains, or labels */}
+            {isCleanDashboardFilterActive && displayedRecords.length > 0 && (
+              <CleanDashboardBar
+                totalMatching={displayedRecords.length}
+                selectedCount={selectedCount}
+                isAllSelected={isAllSelected}
+                onToggleSelectAll={handleToggleSelectAll}
+                onSendToRecycleBin={handleSendToRecycleBin}
+                onClearSelection={handleClearSelection}
+                activeFilterSummary={activeFilterSummary}
+                recycledCount={recycledCount}
+                onOpenRecycledBin={() => setIsRecycledBinOpen(true)}
+                isSending={isSendingToRecycle}
+              />
             )}
 
             {/* Records Content Area */}
@@ -1238,6 +1719,24 @@ export default function App() {
                 Reset Content Filters
               </button>
             </div>
+          ) : isReadLaterOnly ? (
+            <div className="bg-white border border-[#E5E2DA] rounded-2xl p-8 text-center max-w-md mx-auto my-6 shadow-2xs">
+              <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3 border border-amber-200">
+                <Bookmark className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-serif font-bold text-stone-900 mb-1">
+                Your Read Later List is Empty
+              </h3>
+              <p className="text-xs text-stone-600 mb-4 leading-relaxed font-sans">
+                Click the "Read Later" button on any snippet in your archive to save it to your reading list.
+              </p>
+              <button
+                onClick={() => setIsReadLaterOnly(false)}
+                className="px-3.5 py-1.5 rounded-lg bg-[#1A1A1A] hover:bg-black text-white text-xs font-medium transition cursor-pointer"
+              >
+                Browse All Snippets
+              </button>
+            </div>
           ) : (searchQuery || selectedAuthor || selectedTopic || selectedCluster || selectedSubTopic || selectedCategory) ? (
             <div className="bg-white border border-[#E5E2DA] rounded-2xl p-8 text-center max-w-md mx-auto my-6 shadow-2xs">
               <div className="w-12 h-12 rounded-full bg-stone-100 text-stone-600 flex items-center justify-center mx-auto mb-3 border border-stone-200">
@@ -1277,6 +1776,11 @@ export default function App() {
                 fontSize={readerFontSize}
                 isRead={readSnippetSet.has(record.id)}
                 onToggleRead={handleToggleReadSnippet}
+                isReadLater={toReadSnippetSet.has(record.id)}
+                onToggleReadLater={handleToggleReadLater}
+                selectable={isCleanDashboardFilterActive}
+                isSelected={selectedSnippetIds.has(record.id)}
+                onToggleSelect={handleToggleSelectSnippet}
               />
             ))}
           </div>
@@ -1294,6 +1798,11 @@ export default function App() {
                 fontSize={readerFontSize}
                 isRead={readSnippetSet.has(record.id)}
                 onToggleRead={handleToggleReadSnippet}
+                isReadLater={toReadSnippetSet.has(record.id)}
+                onToggleReadLater={handleToggleReadLater}
+                selectable={isCleanDashboardFilterActive}
+                isSelected={selectedSnippetIds.has(record.id)}
+                onToggleSelect={handleToggleSelectSnippet}
               />
             ))}
           </div>
@@ -1399,6 +1908,15 @@ export default function App() {
         onClearSessionView={handleClearSessionView}
         onClearSessionStorage={handleClearSessionStorage}
         onClearAllStorage={handleClearAllStorage}
+      />
+
+      {/* Recycled Bin Modal */}
+      <RecycledBinModal
+        isOpen={isRecycledBinOpen}
+        onClose={() => setIsRecycledBinOpen(false)}
+        onRestoreRecords={handleRestoreRecords}
+        onPermanentDelete={handlePermanentDelete}
+        onEmptyBin={handleEmptyRecycleBin}
       />
 
       {/* Floating Scroll to Top Button */}

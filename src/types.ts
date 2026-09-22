@@ -39,9 +39,11 @@ export interface XHistoryRecord {
   isBookmarked?: boolean;
   bookmarkedAt?: string;
   syncedAt?: string;
+  isRecycled?: boolean;
+  recycledAt?: string;
 }
 
-export type SortOption = 'latest_date' | 'oldest_date' | 'latest_synced' | 'oldest_synced' | 'newest' | 'oldest' | 'likes' | 'retweets';
+export type SortOption = 'newest' | 'latest_date' | 'oldest_date' | 'likes' | 'retweets';
 
 export interface SubTopic {
   id: string;
@@ -156,3 +158,36 @@ export interface ContentFilterOption {
   isCustom?: boolean;
   colorPreset?: string;
 }
+
+export type SubmenuType = 'timeline' | 'trend' | 'top-content' | 'read-later';
+
+export interface TopContentItem {
+  id: string;
+  topic: string;
+  category: string;
+  rank: number;
+  volume?: string;
+  summary: string;
+  viralSnippet: string;
+  authorName: string;
+  authorHandle: string;
+  authorAvatarUrl?: string;
+  isVerified?: boolean;
+  metrics: TweetMetrics;
+  externalUrl: string;
+  sentiment?: 'breaking' | 'positive' | 'controversial' | 'neutral';
+  tags?: string[];
+  collectedAt: string;
+  collectedBy: 'cloud-agent' | 'chrome-extension-agent';
+}
+
+export interface AgentRunStatus {
+  isRunning: boolean;
+  lastRunAt?: string;
+  lastRunStatus?: 'success' | 'failed' | 'idle';
+  totalItemsFound?: number;
+  message?: string;
+  autoScanIntervalMin?: number;
+  mode?: 'cloud' | 'extension';
+}
+

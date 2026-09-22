@@ -48,6 +48,14 @@
         "sourcePage": {
           "type": "string",
           "description": "URL of the page where the tweet was captured (e.g. x.com/i/history)"
+        },
+        "isRecycled": {
+          "type": "boolean",
+          "description": "Whether the record has been sent to the recycled bin"
+        },
+        "recycledAt": {
+          "type": "string",
+          "description": "Timestamp when the record was sent to the recycled bin"
         }
       },
       "required": ["id", "text", "scannedAt"]

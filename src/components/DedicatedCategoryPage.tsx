@@ -17,7 +17,7 @@ import {
   Sparkles,
   ExternalLink
 } from 'lucide-react';
-import { XHistoryRecord, SubTopic, TopicClusterGroup, ContentFilterCategory, ReaderFontSize } from '../types';
+import { XHistoryRecord, SubTopic, TopicClusterGroup, ContentFilterCategory, ReaderFontSize, SortOption } from '../types';
 import { recordMatchesCluster } from '../lib/topicClustering';
 import { recordMatchesSubTopic } from '../lib/subtopics';
 import { RecordCard } from './RecordCard';
@@ -33,6 +33,8 @@ interface DedicatedCategoryPageProps {
   onSelectCategoryFilter?: (cat: ContentFilterCategory) => void;
   readSnippetIds: string[];
   onToggleRead: (id: string) => void;
+  toReadSnippetIds?: string[];
+  onToggleReadLater?: (id: string) => void;
   initialSubTopic?: SubTopic | null;
   fontSize?: ReaderFontSize;
 }
@@ -48,6 +50,8 @@ export const DedicatedCategoryPage: React.FC<DedicatedCategoryPageProps> = ({
   onSelectCategoryFilter,
   readSnippetIds,
   onToggleRead,
+  toReadSnippetIds = [],
+  onToggleReadLater,
   initialSubTopic = null,
   fontSize = 'md'
 }) => {
@@ -59,7 +63,7 @@ export const DedicatedCategoryPage: React.FC<DedicatedCategoryPageProps> = ({
 
   // Content search & view state
   const [recordsSearch, setRecordsSearch] = useState('');
-  const [sortBy, setSortBy] = useState<'latest_date' | 'oldest_date' | 'latest_synced' | 'oldest_synced' | 'likes' | 'retweets'>('latest_date');
+  const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [viewMode, setViewMode] = useState<'cards' | 'compact'>('cards');
   const [snippetFeedTab, setSnippetFeedTab] = useState<'active' | 'caught_up'>('active');
 
@@ -121,43 +125,34 @@ export const DedicatedCategoryPage: React.FC<DedicatedCategoryPageProps> = ({
 
     // Sort
     result = [...result].sort((a, b) => {
-      if (sortBy === 'latest_synced') {
-        const timeB = new Date(b.syncedAt || b.createdAt || 0).getTime();
-        const timeA = new Date(a.syncedAt || a.createdAt || 0).getTime();
+      if (sortBy === 'newest') {
+        const timeB = new Date(b.scannedAt || b.syncedAt || b.createdAt || 0).getTime();
+        const timeA = new Date(a.scannedAt || a.syncedAt || a.createdAt || 0).getTime();
         return timeB - timeA;
       }
-      if (sortBy === 'oldest_synced') {
-        const timeA = new Date(a.syncedAt || a.createdAt || 0).getTime();
-        const timeB = new Date(b.syncedAt || b.createdAt || 0).getTime();
-        return timeA - timeB;
+      if (sortBy === 'latest_date') {
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
       }
       if (sortBy === 'oldest_date') {
-        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      }
-      if (sortBy === 'newest') {
-        const timeB = new Date(b.scannedAt || b.createdAt || 0).getTime();
-        const timeA = new Date(a.scannedAt || a.createdAt || 0).getTime();
-        return timeB - timeA;
-      }
-      if (sortBy === 'oldest') {
-        const timeA = new Date(a.scannedAt || a.createdAt || 0).getTime();
-        const timeB = new Date(b.scannedAt || b.createdAt || 0).getTime();
-        return timeA - timeB;
+        return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
       }
       if (sortBy === 'likes') {
-        return (b.likeCount || 0) - (a.likeCount || 0);
+        return ((b.metrics?.likes ?? (b as any).likeCount) || 0) - ((a.metrics?.likes ?? (a as any).likeCount) || 0);
       }
       if (sortBy === 'retweets') {
-        return (b.retweetCount || 0) - (a.retweetCount || 0);
+        return ((b.metrics?.retweets ?? (b as any).retweetCount) || 0) - ((a.metrics?.retweets ?? (a as any).retweetCount) || 0);
       }
-      // default: latest_date
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      // default: newest
+      const timeB = new Date(b.scannedAt || b.syncedAt || b.createdAt || 0).getTime();
+      const timeA = new Date(a.scannedAt || a.syncedAt || a.createdAt || 0).getTime();
+      return timeB - timeA;
     });
 
     return result;
   }, [categoryRecords, selectedSubTopic, recordsSearch, sortBy]);
 
   const readSnippetSet = useMemo(() => new Set(readSnippetIds), [readSnippetIds]);
+  const toReadSnippetSet = useMemo(() => new Set(toReadSnippetIds), [toReadSnippetIds]);
 
   // Split into active and caught up
   const activeRecords = useMemo(() => {
@@ -581,14 +576,11 @@ export const DedicatedCategoryPage: React.FC<DedicatedCategoryPageProps> = ({
             onChange={(e) => setSortBy(e.target.value as any)}
             className="text-xs py-1.5 px-2.5 bg-white border border-[#DDD7CC] rounded-lg text-stone-800 focus:outline-hidden focus:border-stone-600 cursor-pointer font-medium"
           >
-            <option value="latest_date">Latest Date</option>
-            <option value="oldest_date">Oldest Date</option>
-            <option value="latest_synced">Recently Synced</option>
-            <option value="oldest_synced">Earliest Synced</option>
-            <option value="newest">Newest Scanned</option>
-            <option value="oldest">Oldest Scanned</option>
-            <option value="likes">Most Likes</option>
-            <option value="retweets">Most Retweets</option>
+            <option value="newest">Newest scanned</option>
+            <option value="latest_date">Latest by Date</option>
+            <option value="oldest_date">Oldest by date</option>
+            <option value="likes">Most likes</option>
+            <option value="retweets">Most reposts</option>
           </select>
 
           {/* View Mode Toggle: Grid vs Compact */}
@@ -665,6 +657,8 @@ export const DedicatedCategoryPage: React.FC<DedicatedCategoryPageProps> = ({
               fontSize={fontSize}
               isRead={readSnippetSet.has(record.id)}
               onToggleRead={onToggleRead}
+              isReadLater={toReadSnippetSet.has(record.id)}
+              onToggleReadLater={onToggleReadLater}
             />
           ))}
         </div>
@@ -681,6 +675,8 @@ export const DedicatedCategoryPage: React.FC<DedicatedCategoryPageProps> = ({
               fontSize={fontSize}
               isRead={readSnippetSet.has(record.id)}
               onToggleRead={onToggleRead}
+              isReadLater={toReadSnippetSet.has(record.id)}
+              onToggleReadLater={onToggleReadLater}
             />
           ))}
         </div>

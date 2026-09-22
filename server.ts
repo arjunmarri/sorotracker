@@ -9,6 +9,10 @@ import {
   saveRecords, 
   deleteRecord, 
   deleteMultipleRecords,
+  recycleRecords,
+  restoreRecords,
+  getRecycledRecords,
+  emptyRecycleBin,
   clearAllRecords, 
   initStorage, 
   getStorageStatus,
@@ -19,13 +23,21 @@ import {
   deleteUser,
   syncAuthUser,
   getSiteSettings,
-  updateSiteSettings
+  updateSiteSettings,
+  getTopContent,
+  saveTopContent,
+  addTopContentItems,
+  clearTopContent,
+  getAgentStatus,
+  updateAgentStatus
 } from './server/storage';
 import { 
   getOrGenerateSummary, 
   askArchiveQuestion, 
   generateFallbackSummary, 
-  invalidateSummaryCache 
+  invalidateSummaryCache,
+  runTrendingAgent,
+  generateFallbackTopContent
 } from './server/ai';
 import { getSyncAuthToken, requireSyncAuth, validateSyncAuthToken } from './server/auth';
 
@@ -334,6 +346,165 @@ app.post('/api/import/json', async (req, res) => {
   }
 });
 
+// ==========================================
+// Autonomous SoroTrack Agent & Top Content API
+// ==========================================
+
+// Get Top Content and Agent status
+app.get('/api/agent/top-content', async (req, res) => {
+  try {
+    let items = getTopContent();
+    const status = getAgentStatus();
+
+    // If no items exist, seed with high-signal real-time fallback top content
+    if (items.length === 0) {
+      const fallback = generateFallbackTopContent();
+      items = saveTopContent(fallback);
+      updateAgentStatus({
+        lastRunAt: new Date().toISOString(),
+        lastRunStatus: 'success',
+        totalItemsFound: items.length,
+        message: 'Initialized with live trending topics from X'
+      });
+    }
+
+    res.json({ items, status: getAgentStatus() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch top content' });
+  }
+});
+
+// Get Agent Status
+app.get('/api/agent/status', (req, res) => {
+  try {
+    res.json(getAgentStatus());
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch agent status' });
+  }
+});
+
+// Run SoroTrack Autonomous Agent
+app.post('/api/agent/run', async (req, res) => {
+  try {
+    updateAgentStatus({ isRunning: true, message: 'Autonomous agent scanning 𝕏 in background...' });
+    
+    const forceRefresh = Boolean(req.body?.forceRefresh);
+    const mode = req.body?.mode === 'extension' ? 'extension' : 'cloud';
+
+    const result = await runTrendingAgent(forceRefresh);
+    const saved = saveTopContent(result.items);
+
+    const updatedStatus = updateAgentStatus({
+      isRunning: false,
+      lastRunAt: new Date().toISOString(),
+      lastRunStatus: 'success',
+      totalItemsFound: saved.length,
+      mode,
+      message: `Autonomous agent successfully gathered ${saved.length} trending discussions from 𝕏`
+    });
+
+    res.json({
+      success: true,
+      items: saved,
+      status: updatedStatus,
+      source: result.source,
+      message: updatedStatus.message
+    });
+  } catch (err: any) {
+    updateAgentStatus({
+      isRunning: false,
+      lastRunStatus: 'failed',
+      message: err.message || 'Agent encountered an error while scanning 𝕏'
+    });
+    res.status(500).json({ error: err.message || 'Failed to run autonomous agent' });
+  }
+});
+
+// Ingest trending items pushed by Chrome Extension Autonomous Agent
+app.post('/api/agent/top-content', (req, res) => {
+  try {
+    const { items, mode } = req.body;
+    if (Array.isArray(items) && items.length > 0) {
+      const updated = addTopContentItems(items);
+      updateAgentStatus({
+        isRunning: false,
+        lastRunAt: new Date().toISOString(),
+        lastRunStatus: 'success',
+        totalItemsFound: updated.length,
+        mode: mode || 'extension',
+        message: `Chrome extension agent delivered ${items.length} trending items from 𝕏`
+      });
+      res.json({ success: true, count: updated.length, items: updated });
+    } else {
+      res.status(400).json({ error: 'No valid trending items provided' });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to ingest agent items' });
+  }
+});
+
+// 1-Click Save Top Content item to user's personal SoroTrack Timeline
+app.post('/api/agent/save-to-timeline', async (req, res) => {
+  try {
+    const item = req.body?.item;
+    if (!item || !item.topic) {
+      return res.status(400).json({ error: 'Invalid top content item' });
+    }
+
+    const now = new Date().toISOString();
+    const record: any = {
+      id: `agent_saved_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      tweetUrl: item.externalUrl || `https://x.com/search?q=${encodeURIComponent(item.topic)}`,
+      authorName: item.authorName || 'Trending on 𝕏',
+      authorHandle: item.authorHandle || `@${item.topic.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase()}`,
+      authorAvatarUrl: item.authorAvatarUrl || '',
+      isVerified: Boolean(item.isVerified),
+      text: `${item.viralSnippet || item.summary}\n\n[Trending on 𝕏: ${item.topic} • ${item.volume || 'Viral'}]`,
+      createdAt: item.collectedAt || now,
+      scannedAt: now,
+      syncedAt: now,
+      links: [
+        {
+          url: item.externalUrl || `https://x.com/search?q=${encodeURIComponent(item.topic)}`,
+          displayUrl: `x.com/search?q=${item.topic}`,
+          domain: 'x.com',
+          title: `${item.topic} - Trending on 𝕏`
+        }
+      ],
+      media: [],
+      metrics: item.metrics || {},
+      tags: Array.isArray(item.tags) ? item.tags : [item.category, 'Trending'],
+      labels: ['news_announcements'],
+      sourcePage: 'https://x.com/i/history',
+      isBookmarked: true,
+      bookmarkedAt: now
+    };
+
+    const saveResult = await saveRecords([record]);
+    invalidateSummaryCache();
+
+    res.json({
+      success: true,
+      record,
+      totalArchived: saveResult.total,
+      message: `"${item.topic}" saved to your permanent SoroTrack archive!`
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to save trending item to timeline' });
+  }
+});
+
+// Clear Top Content
+app.delete('/api/agent/top-content', (req, res) => {
+  try {
+    clearTopContent();
+    updateAgentStatus({ totalItemsFound: 0, message: 'Top content cleared' });
+    res.json({ success: true, message: 'Cleared top content items' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to clear top content' });
+  }
+});
+
 // Get archived records with search & filtering
 app.get('/api/records', (req, res) => {
   try {
@@ -416,6 +587,57 @@ app.delete('/api/records', async (req, res) => {
     res.json({ success: true, message: 'All archive records cleared from memory and GCP collection.' });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to clear records' });
+  }
+});
+
+// Send records to recycled bin
+app.post('/api/records/recycle', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Array of record IDs required' });
+    }
+    const count = await recycleRecords(ids);
+    invalidateSummaryCache();
+    res.json({ success: true, count, ids });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to send records to recycled bin' });
+  }
+});
+
+// Restore records from recycled bin
+app.post('/api/records/restore', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Array of record IDs required' });
+    }
+    const count = await restoreRecords(ids);
+    invalidateSummaryCache();
+    res.json({ success: true, count, ids });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to restore records' });
+  }
+});
+
+// Get recycled records
+app.get('/api/records/recycled', (req, res) => {
+  try {
+    const records = getRecycledRecords();
+    res.json({ records, count: records.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to retrieve recycled records' });
+  }
+});
+
+// Empty recycled bin (permanent delete)
+app.delete('/api/records/recycled', async (req, res) => {
+  try {
+    const count = await emptyRecycleBin();
+    invalidateSummaryCache();
+    res.json({ success: true, count, message: `Permanently deleted ${count} recycled record(s)` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to empty recycled bin' });
   }
 });
 

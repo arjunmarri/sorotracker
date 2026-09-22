@@ -9,6 +9,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { AISummaryResult, XHistoryRecord } from '../types';
+import { WeeklyActivityChart } from './WeeklyActivityChart';
 
 interface SummarySectionProps {
   summary: AISummaryResult | null;
@@ -24,6 +25,7 @@ export const SummarySection: React.FC<SummarySectionProps> = ({
   isLoading,
   onRefresh,
   onAskQuestion,
+  records = [],
   onClose
 }) => {
   const [activeTab, setActiveTab] = useState<'briefing' | 'ask'>('briefing');
@@ -47,7 +49,7 @@ export const SummarySection: React.FC<SummarySectionProps> = ({
     }
   };
 
-  if (!summary && !isLoading) {
+  if (!summary && !isLoading && (!records || records.length === 0)) {
     return null;
   }
 
@@ -62,11 +64,11 @@ export const SummarySection: React.FC<SummarySectionProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-sans font-bold text-slate-900 tracking-tight">
-                Archive Intelligence Briefing
+                Trend
               </h2>
             </div>
             <p className="text-xs text-slate-500 font-sans mt-0.5">
-              High-signal executive synthesis and conversational query engine
+              Executive trend synthesis, topic intelligence, and conversational query engine
             </p>
           </div>
         </div>
@@ -106,7 +108,7 @@ export const SummarySection: React.FC<SummarySectionProps> = ({
           }`}
         >
           <BookOpen className="w-3.5 h-3.5" />
-          <span>Executive Briefing</span>
+          <span>Trend Synthesis</span>
         </button>
 
         <button
@@ -128,7 +130,7 @@ export const SummarySection: React.FC<SummarySectionProps> = ({
         {isLoading ? (
           <div className="py-12 text-center">
             <div className="inline-block w-8 h-8 border-2 border-slate-700 border-t-transparent rounded-full animate-spin mb-3"></div>
-            <p className="text-sm font-sans font-semibold text-slate-800">Synthesizing Reading Archive Intelligence...</p>
+            <p className="text-sm font-sans font-semibold text-slate-800">Synthesizing Trend Intelligence...</p>
             <p className="text-xs text-slate-500 mt-1 font-sans">
               Distilling core insights and extracting themes across your bookmarked posts.
             </p>
@@ -232,7 +234,26 @@ export const SummarySection: React.FC<SummarySectionProps> = ({
               </div>
             )}
           </>
-        ) : null}
+        ) : (
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs font-sans text-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <span className="font-semibold text-slate-900 block">AI Trend Intelligence</span>
+              <span>Generate AI trend takeaways and distilled themes from your {records.length} collected snippets.</span>
+            </div>
+            <button
+              onClick={onRefresh}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-black text-white text-xs font-semibold shrink-0 cursor-pointer shadow-2xs"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              <span>Generate Trend Analysis</span>
+            </button>
+          </div>
+        )}
+
+        {/* Section: Weekly Activity (Number of snippets collected per day over the last 7 days) */}
+        {records && records.length > 0 && (
+          <WeeklyActivityChart records={records} />
+        )}
       </div>
     </section>
   );

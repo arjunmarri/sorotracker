@@ -23,7 +23,12 @@ interface RecordCardProps {
   compact?: boolean;
   isRead?: boolean;
   onToggleRead?: (id: string) => void;
+  isReadLater?: boolean;
+  onToggleReadLater?: (id: string) => void;
   fontSize?: ReaderFontSize;
+  selectable?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }
 
 const RecordCardComponent: React.FC<RecordCardProps> = ({
@@ -34,7 +39,12 @@ const RecordCardComponent: React.FC<RecordCardProps> = ({
   compact = false,
   isRead = false,
   onToggleRead,
-  fontSize = 'md'
+  isReadLater = false,
+  onToggleReadLater,
+  fontSize = 'md',
+  selectable = false,
+  isSelected = false,
+  onToggleSelect
 }) => {
   const [copiedLink, setCopiedLink] = useState(false);
 
@@ -75,9 +85,39 @@ const RecordCardComponent: React.FC<RecordCardProps> = ({
     return (
       <div 
         id={`record-${record.id}`}
-        className="bg-white border border-slate-200 hover:border-slate-400 rounded-xl p-3.5 transition-all duration-150 flex flex-col md:flex-row md:items-center justify-between gap-3 group shadow-2xs hover:shadow-xs"
+        className={`bg-white border rounded-xl p-3.5 transition-all duration-150 flex flex-col md:flex-row md:items-center justify-between gap-3 group shadow-2xs ${
+          selectable ? 'cursor-pointer select-none' : ''
+        } ${
+          isSelected
+            ? 'border-rose-400 ring-2 ring-rose-400/40 bg-rose-50/25'
+            : 'border-slate-200 hover:border-slate-400 hover:shadow-xs'
+        }`}
+        onClick={() => {
+          if (selectable) {
+            onToggleSelect?.(record.id);
+          }
+        }}
       >
         <div className="flex items-start gap-3 min-w-0 flex-1">
+          {selectable && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleSelect?.(record.id);
+              }}
+              className={`mt-1.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-all cursor-pointer ${
+                isSelected
+                  ? 'bg-rose-600 border-rose-600 text-white shadow-2xs ring-2 ring-rose-200'
+                  : 'border-slate-300 bg-white hover:border-rose-400 hover:bg-rose-50'
+              }`}
+              title={isSelected ? 'Deselect snippet' : 'Select snippet for Recycled Bin'}
+              aria-label="Select snippet"
+            >
+              {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+            </button>
+          )}
+
           {/* Avatar */}
           <a 
             href={getProfileUrl(record.authorHandle)}
@@ -210,6 +250,22 @@ const RecordCardComponent: React.FC<RecordCardProps> = ({
         {/* Right side actions */}
         <div className="flex items-center gap-1.5 self-end md:self-center shrink-0">
           <button
+            id={`read-later-compact-${record.id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleReadLater && onToggleReadLater(record.id);
+            }}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition cursor-pointer border ${
+              isReadLater
+                ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 font-semibold'
+                : 'bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-900 border-slate-200 hover:border-amber-300'
+            }`}
+            title={isReadLater ? 'Remove from Read Later list' : 'Save to Read Later list'}
+          >
+            <Bookmark className={`w-3 h-3 ${isReadLater ? 'text-amber-600 fill-amber-500' : 'text-slate-400'}`} />
+            <span>{isReadLater ? 'Saved' : 'Read Later'}</span>
+          </button>
+          <button
             id={`mark-read-compact-${record.id}`}
             onClick={(e) => {
               e.stopPropagation();
@@ -257,34 +313,86 @@ const RecordCardComponent: React.FC<RecordCardProps> = ({
   return (
     <article 
       id={`record-${record.id}`}
-      className="bg-white border border-slate-200 hover:border-slate-400 rounded-2xl p-4 sm:p-5 transition-all duration-200 shadow-xs hover:shadow-md flex flex-col justify-between group"
+      className={`bg-white border rounded-2xl p-4 sm:p-5 transition-all duration-200 shadow-xs flex flex-col justify-between group ${
+        selectable ? 'cursor-pointer select-none' : ''
+      } ${
+        isSelected
+          ? 'border-rose-400 ring-2 ring-rose-400/40 bg-rose-50/15 shadow-md'
+          : 'border-slate-200 hover:border-slate-400 hover:shadow-md'
+      }`}
+      onClick={() => {
+        if (selectable) {
+          onToggleSelect?.(record.id);
+        }
+      }}
     >
       <div>
         {/* Top Header on Top of Snippet: Status & Mark as Read */}
-        <div className="flex items-center justify-between pb-2.5 mb-3 border-b border-slate-100 text-xs">
-          <div className="flex items-center gap-1.5 text-slate-500 font-mono text-[11px]">
-            <span className={`w-2 h-2 rounded-full ${isRead ? 'bg-emerald-500 ring-2 ring-emerald-100' : 'bg-slate-300'}`}></span>
-            <span className="font-medium text-slate-600">Snippet</span>
-            <span className="text-slate-300">•</span>
-            <span className="text-slate-400 font-mono">#{record.id.slice(-6)}</span>
+        <div className="flex items-center justify-between pb-2.5 mb-3 border-b border-slate-100 text-xs gap-2">
+          <div className="flex items-center gap-2 text-slate-500 font-mono text-[11px] min-w-0">
+            {selectable && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleSelect?.(record.id);
+                }}
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-sans font-medium transition cursor-pointer border shrink-0 ${
+                  isSelected
+                    ? 'bg-rose-600 text-white border-rose-600 shadow-2xs ring-1 ring-rose-300'
+                    : 'bg-slate-50 text-slate-700 hover:text-rose-700 hover:bg-rose-50 border-slate-200 hover:border-rose-300'
+                }`}
+                title={isSelected ? 'Deselect snippet' : 'Select snippet for Recycled Bin'}
+              >
+                <div className={`w-3 h-3 rounded-xs border flex items-center justify-center ${isSelected ? 'border-white bg-rose-600' : 'border-slate-400 bg-white'}`}>
+                  {isSelected && <Check className="w-2.5 h-2.5 stroke-[3] text-white" />}
+                </div>
+                <span>{isSelected ? 'Selected' : 'Select'}</span>
+              </button>
+            )}
+            <div className="flex items-center gap-1.5 truncate">
+              <span className={`w-2 h-2 rounded-full shrink-0 ${isRead ? 'bg-emerald-500 ring-2 ring-emerald-100' : 'bg-slate-300'}`}></span>
+              <span className="font-medium text-slate-600">Snippet</span>
+              <span className="text-slate-300">•</span>
+              <span className="text-slate-400 font-mono">#{record.id.slice(-6)}</span>
+            </div>
           </div>
 
-          <button
-            id={`mark-read-${record.id}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleRead && onToggleRead(record.id);
-            }}
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition cursor-pointer border ${
-              isRead
-                ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 shadow-2xs'
-                : 'bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border-slate-200 hover:border-emerald-300 shadow-2xs group/btn'
-            }`}
-            title={isRead ? 'Move back to active snippets' : 'Mark as read and move to Caught up'}
-          >
-            <CheckCircle2 className={`w-3.5 h-3.5 ${isRead ? 'text-emerald-600' : 'text-slate-400 group-hover/btn:text-emerald-600'} transition`} />
-            <span>{isRead ? 'Caught up' : 'Mark as read'}</span>
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              id={`read-later-${record.id}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleReadLater && onToggleReadLater(record.id);
+              }}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition cursor-pointer border shrink-0 ${
+                isReadLater
+                  ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 shadow-2xs font-semibold'
+                  : 'bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-900 border-slate-200 hover:border-amber-300 shadow-2xs group/rl-btn'
+              }`}
+              title={isReadLater ? 'Remove from Read Later list' : 'Save to Read Later list'}
+            >
+              <Bookmark className={`w-3.5 h-3.5 ${isReadLater ? 'text-amber-600 fill-amber-500' : 'text-slate-400 group-hover/rl-btn:text-amber-600'} transition`} />
+              <span>{isReadLater ? 'In Read Later' : 'Read Later'}</span>
+            </button>
+
+            <button
+              id={`mark-read-${record.id}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleRead && onToggleRead(record.id);
+              }}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition cursor-pointer border shrink-0 ${
+                isRead
+                  ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 shadow-2xs'
+                  : 'bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border-slate-200 hover:border-emerald-300 shadow-2xs group/btn'
+              }`}
+              title={isRead ? 'Move back to active snippets' : 'Mark as read and move to Caught up'}
+            >
+              <CheckCircle2 className={`w-3.5 h-3.5 ${isRead ? 'text-emerald-600' : 'text-slate-400 group-hover/btn:text-emerald-600'} transition`} />
+              <span>{isRead ? 'Caught up' : 'Mark as read'}</span>
+            </button>
+          </div>
         </div>
 
         {/* Author Header */}

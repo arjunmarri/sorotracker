@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { XHistoryRecord, UserProfile, SiteSettings } from '../src/types';
+import { XHistoryRecord, UserProfile, SiteSettings, TopContentItem, AgentRunStatus } from '../src/types';
 import { 
   fetchRecordsFromFirestore, 
   saveRecordsToFirestore, 
@@ -14,11 +14,23 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'history_records.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+const TOP_CONTENT_FILE = path.join(DATA_DIR, 'top_content.json');
+const AGENT_STATUS_FILE = path.join(DATA_DIR, 'agent_status.json');
 
 // In-memory cache synced with GCP Firestore
 let recordsMap = new Map<string, XHistoryRecord>();
 // Users map for admin panel
 let usersMap = new Map<string, UserProfile>();
+// Top content trending items cache
+let topContentMap = new Map<string, TopContentItem>();
+// Agent status cache
+let agentStatus: AgentRunStatus = {
+  isRunning: false,
+  lastRunStatus: 'idle',
+  totalItemsFound: 0,
+  mode: 'cloud',
+  autoScanIntervalMin: 60
+};
 // Site settings cache
 let currentSettings: SiteSettings = {
   id: 'site',
@@ -117,6 +129,54 @@ function initUsersAndSettings() {
     }
   } else {
     persistSettingsToDisk();
+  }
+
+  // 3. Load or initialize top content items
+  if (fs.existsSync(TOP_CONTENT_FILE)) {
+    try {
+      const raw = fs.readFileSync(TOP_CONTENT_FILE, 'utf-8');
+      const loaded: TopContentItem[] = JSON.parse(raw);
+      if (Array.isArray(loaded)) {
+        topContentMap.clear();
+        loaded.forEach(item => {
+          if (item && item.id) topContentMap.set(item.id, item);
+        });
+      }
+    } catch (e) {
+      console.warn('[Storage] Error loading top_content.json:', e);
+    }
+  }
+
+  // 4. Load agent status
+  if (fs.existsSync(AGENT_STATUS_FILE)) {
+    try {
+      const raw = fs.readFileSync(AGENT_STATUS_FILE, 'utf-8');
+      const loaded = JSON.parse(raw);
+      if (loaded && typeof loaded === 'object') {
+        agentStatus = { ...agentStatus, ...loaded, isRunning: false };
+      }
+    } catch (e) {
+      console.warn('[Storage] Error loading agent_status.json:', e);
+    }
+  }
+}
+
+function persistTopContentToDisk() {
+  try {
+    ensureDataDir();
+    const array = Array.from(topContentMap.values());
+    fs.writeFileSync(TOP_CONTENT_FILE, JSON.stringify(array, null, 2), 'utf-8');
+  } catch (e: any) {
+    console.warn('[Storage] Notice writing top content to disk:', e?.message || e);
+  }
+}
+
+function persistAgentStatusToDisk() {
+  try {
+    ensureDataDir();
+    fs.writeFileSync(AGENT_STATUS_FILE, JSON.stringify(agentStatus, null, 2), 'utf-8');
+  } catch (e: any) {
+    console.warn('[Storage] Notice writing agent status to disk:', e?.message || e);
   }
 }
 
@@ -227,8 +287,17 @@ export function getAllRecords(options?: {
   topic?: string;
   keywords?: string[];
   sort?: 'latest_date' | 'oldest_date' | 'latest_synced' | 'oldest_synced' | 'newest' | 'oldest' | 'likes' | 'retweets';
+  includeRecycled?: boolean;
+  onlyRecycled?: boolean;
 }): XHistoryRecord[] {
   let list = Array.from(recordsMap.values());
+
+  // Filter out recycled records unless explicitly requested
+  if (options?.onlyRecycled) {
+    list = list.filter(r => r.isRecycled === true);
+  } else if (!options?.includeRecycled) {
+    list = list.filter(r => !r.isRecycled);
+  }
 
   if (options) {
     const { query, domain, author, hasLinks, hasMedia, tag, topic, keywords, sort } = options;
@@ -477,6 +546,68 @@ export async function deleteMultipleRecords(ids: string[]): Promise<number> {
   return count;
 }
 
+export async function recycleRecords(ids: string[]): Promise<number> {
+  const updatedRecords: XHistoryRecord[] = [];
+  const now = new Date().toISOString();
+
+  for (const id of ids) {
+    const rec = recordsMap.get(id);
+    if (rec) {
+      rec.isRecycled = true;
+      rec.recycledAt = now;
+      recordsMap.set(id, rec);
+      updatedRecords.push(rec);
+    }
+  }
+
+  if (updatedRecords.length > 0) {
+    persistToDisk();
+    saveRecordsToFirestore(updatedRecords).catch(err => {
+      console.warn('[Storage] Error updating recycled state in GCP collection:', err);
+    });
+  }
+
+  return updatedRecords.length;
+}
+
+export async function restoreRecords(ids: string[]): Promise<number> {
+  const updatedRecords: XHistoryRecord[] = [];
+
+  for (const id of ids) {
+    const rec = recordsMap.get(id);
+    if (rec) {
+      rec.isRecycled = false;
+      delete rec.recycledAt;
+      recordsMap.set(id, rec);
+      updatedRecords.push(rec);
+    }
+  }
+
+  if (updatedRecords.length > 0) {
+    persistToDisk();
+    saveRecordsToFirestore(updatedRecords).catch(err => {
+      console.warn('[Storage] Error updating restored state in GCP collection:', err);
+    });
+  }
+
+  return updatedRecords.length;
+}
+
+export function getRecycledRecords(): XHistoryRecord[] {
+  return Array.from(recordsMap.values())
+    .filter(r => r.isRecycled === true)
+    .sort((a, b) => new Date(b.recycledAt || 0).getTime() - new Date(a.recycledAt || 0).getTime());
+}
+
+export async function emptyRecycleBin(): Promise<number> {
+  const recycledIds = Array.from(recordsMap.values())
+    .filter(r => r.isRecycled === true)
+    .map(r => r.id);
+
+  if (recycledIds.length === 0) return 0;
+  return await deleteMultipleRecords(recycledIds);
+}
+
 export async function clearAllRecords(): Promise<void> {
   recordsMap.clear();
   syncedToFirestoreIds.clear();
@@ -643,3 +774,50 @@ export function updateSiteSettings(updates: Partial<SiteSettings>, updatedBy?: s
   persistSettingsToDisk();
   return { ...currentSettings };
 }
+
+// Top Content & Autonomous Agent API
+export function getTopContent(): TopContentItem[] {
+  const items = Array.from(topContentMap.values());
+  return items.sort((a, b) => (a.rank || 999) - (b.rank || 999));
+}
+
+export function saveTopContent(items: TopContentItem[]): TopContentItem[] {
+  topContentMap.clear();
+  items.forEach(item => {
+    if (item && item.id) {
+      topContentMap.set(item.id, item);
+    }
+  });
+  persistTopContentToDisk();
+  return getTopContent();
+}
+
+export function addTopContentItems(items: TopContentItem[]): TopContentItem[] {
+  items.forEach(item => {
+    if (item && item.id) {
+      topContentMap.set(item.id, item);
+    }
+  });
+  persistTopContentToDisk();
+  return getTopContent();
+}
+
+export function clearTopContent(): void {
+  topContentMap.clear();
+  persistTopContentToDisk();
+}
+
+export function getAgentStatus(): AgentRunStatus {
+  return { ...agentStatus, totalItemsFound: topContentMap.size };
+}
+
+export function updateAgentStatus(updates: Partial<AgentRunStatus>): AgentRunStatus {
+  agentStatus = {
+    ...agentStatus,
+    ...updates,
+    totalItemsFound: topContentMap.size
+  };
+  persistAgentStatusToDisk();
+  return { ...agentStatus };
+}
+

@@ -8,16 +8,20 @@ import {
   Puzzle,
   HelpCircle,
   ChevronDown,
-  EyeOff,
   Trash2,
-  ExternalLink
+  ExternalLink,
+  Sun,
+  Moon,
+  Bot
 } from 'lucide-react';
-import { UserProfile } from '../types';
+import { UserProfile, SiteTheme } from '../types';
 
 interface HeaderProps {
   siteName?: string;
   tagline?: string;
   currentUser: UserProfile | null;
+  currentTheme?: SiteTheme;
+  onToggleTheme?: () => void;
   onOpenExtensionDrawer: () => void;
   onOpenAdmin: () => void;
   onOpenAuth: () => void;
@@ -25,9 +29,10 @@ interface HeaderProps {
   onExportJson?: () => void;
   onOpenImportJson?: (file?: File) => void;
   onLogoClick?: () => void;
-  isAnonMode?: boolean;
-  onToggleAnonMode?: () => void;
   onOpenClearSession?: () => void;
+  recycledCount?: number;
+  onOpenRecycledBin?: () => void;
+  onOpenTopContent?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -41,9 +46,12 @@ export const Header: React.FC<HeaderProps> = ({
   onExportJson,
   onOpenImportJson,
   onLogoClick,
-  isAnonMode = false,
-  onToggleAnonMode,
-  onOpenClearSession
+  onOpenClearSession,
+  recycledCount = 0,
+  onOpenRecycledBin,
+  onOpenTopContent,
+  currentTheme = 'warm-neutral',
+  onToggleTheme
 }) => {
   const isAdmin = currentUser?.role === 'admin';
   const [isExtensionMenuOpen, setIsExtensionMenuOpen] = useState(false);
@@ -106,7 +114,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Action Controls */}
+          {/* Action Controls & Navigation */}
           <div className="flex items-center gap-2.5">
             {/* Admin Panel Button - Only visible to authenticated admin */}
             {isAdmin && (
@@ -121,26 +129,27 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* Anon Mode Button */}
-            {onToggleAnonMode && (
+            {/* Theme Toggle Button (Light/Dark Switcher) */}
+            {onToggleTheme && (
               <button
-                id="header-anon-mode-btn"
+                id="header-theme-toggle-btn"
                 type="button"
-                onClick={onToggleAnonMode}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition cursor-pointer shadow-2xs ${
-                  isAnonMode
-                    ? 'bg-amber-500/15 border-amber-500/50 text-amber-700 dark:text-amber-300 font-semibold ring-1 ring-amber-500/30'
-                    : 'bg-white dark:bg-stone-850 hover:bg-slate-50 dark:hover:bg-stone-800 text-slate-700 dark:text-stone-300 border-slate-300 dark:border-stone-700'
-                }`}
-                title={isAnonMode ? "Anon Mode Active: No snippets are saved or stored. Click to disable." : "Click to enable Anon Mode: No snippets will be saved."}
+                onClick={onToggleTheme}
+                className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium border border-slate-300 dark:border-stone-700 bg-white dark:bg-stone-850 hover:bg-slate-50 dark:hover:bg-stone-800 text-slate-700 dark:text-stone-300 transition cursor-pointer shadow-2xs"
+                title={currentTheme === 'midnight-dark' ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
+                aria-label="Toggle light/dark theme"
               >
-                <EyeOff className={`w-3.5 h-3.5 ${isAnonMode ? 'text-amber-600 dark:text-amber-400 animate-pulse' : 'text-slate-400 dark:text-stone-500'}`} />
-                <span>Anon</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
-                  isAnonMode ? 'bg-amber-500 text-stone-950' : 'bg-slate-200 dark:bg-stone-750 text-slate-600 dark:text-stone-400'
-                }`}>
-                  {isAnonMode ? 'ON' : 'OFF'}
-                </span>
+                {currentTheme === 'midnight-dark' ? (
+                  <>
+                    <Sun className="w-3.5 h-3.5 text-amber-500" />
+                    <span className="hidden md:inline">Light</span>
+                  </>
+                ) : (
+                  <>
+                    <Moon className="w-3.5 h-3.5 text-slate-500" />
+                    <span className="hidden md:inline">Dark</span>
+                  </>
+                )}
               </button>
             )}
 
@@ -224,6 +233,32 @@ export const Header: React.FC<HeaderProps> = ({
                       </div>
                     </div>
                   </button>
+
+                  {/* Top Content & Agent */}
+                  {onOpenTopContent && (
+                    <button
+                      id="ext-menu-top-content-btn"
+                      type="button"
+                      onClick={() => {
+                        setIsExtensionMenuOpen(false);
+                        onOpenTopContent();
+                      }}
+                      className="w-full text-left px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-stone-800 flex items-center gap-2.5 transition cursor-pointer group"
+                    >
+                      <div className="p-1 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 group-hover:scale-105 transition">
+                        <Bot className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-slate-900 dark:text-stone-100 font-sans flex items-center gap-1.5">
+                          <span>Top Content (Agent)</span>
+                          <span className="text-[9px] px-1 py-0.2 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300 font-mono font-bold">Live</span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 dark:text-stone-400 font-sans">
+                          Trending topics & viral posts on 𝕏
+                        </div>
+                      </div>
+                    </button>
+                  )}
 
                   {/* View Local Synced Data */}
                   <button
@@ -311,33 +346,33 @@ export const Header: React.FC<HeaderProps> = ({
                     </span>
                   </div>
 
-                  {/* Anon Mode Toggle */}
-                  {onToggleAnonMode && (
+                  {/* Recycled Bin */}
+                  {onOpenRecycledBin && (
                     <button
-                      id="ext-menu-anon-mode-btn"
+                      id="ext-menu-recycled-bin-btn"
                       type="button"
                       onClick={() => {
                         setIsExtensionMenuOpen(false);
-                        onToggleAnonMode();
+                        onOpenRecycledBin();
                       }}
-                      className="w-full text-left px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-stone-800 flex items-center gap-2.5 transition cursor-pointer group"
+                      className="w-full text-left px-3.5 py-2 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center gap-2.5 transition cursor-pointer group"
                     >
-                      <div className={`p-1 rounded-md ${isAnonMode ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400' : 'bg-slate-100 dark:bg-stone-800 text-slate-700 dark:text-stone-300'} group-hover:scale-105 transition`}>
-                        <EyeOff className="w-3.5 h-3.5" />
+                      <div className="p-1 rounded-md bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 group-hover:scale-105 transition">
+                        <Trash2 className="w-3.5 h-3.5" />
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-semibold text-slate-900 dark:text-stone-100 font-sans">
-                            Anon Mode
+                            Recycled Bin
                           </span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold ${
-                            isAnonMode ? 'bg-amber-500 text-stone-950' : 'bg-slate-200 dark:bg-stone-750 text-slate-600 dark:text-stone-400'
-                          }`}>
-                            {isAnonMode ? 'ON' : 'OFF'}
-                          </span>
+                          {recycledCount > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                              {recycledCount}
+                            </span>
+                          )}
                         </div>
                         <div className="text-[10px] text-slate-500 dark:text-stone-400 font-sans">
-                          {isAnonMode ? 'Snippets are not stored' : 'Store snippets normally'}
+                          Review or restore cleaned snippets
                         </div>
                       </div>
                     </button>

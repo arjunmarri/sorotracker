@@ -12,7 +12,9 @@ import {
   Layers,
   Type,
   Globe,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Bookmark,
+  TrendingUp
 } from 'lucide-react';
 import { ContentFilterCategory, SubTopic, ReaderFontSize, SortOption, ContentFilterOption } from '../types';
 import { TopicClusterGroup } from '../lib/topicClustering';
@@ -37,6 +39,11 @@ interface FilterBarProps {
   onToggleHasLinks: () => void;
   hasMediaOnly: boolean;
   onToggleHasMedia: () => void;
+  isReadLaterOnly?: boolean;
+  onToggleReadLaterOnly?: () => void;
+  toReadCount?: number;
+  isAiBriefingOpen?: boolean;
+  onToggleAiBriefing?: () => void;
   sortBy: SortOption;
   onSortChange: (sort: SortOption) => void;
   viewMode: 'cards' | 'compact';
@@ -75,6 +82,11 @@ const FilterBarComponent: React.FC<FilterBarProps> = ({
   onToggleHasLinks,
   hasMediaOnly,
   onToggleHasMedia,
+  isReadLaterOnly = false,
+  onToggleReadLaterOnly,
+  toReadCount = 0,
+  isAiBriefingOpen = false,
+  onToggleAiBriefing,
   sortBy,
   onSortChange,
   viewMode,
@@ -93,7 +105,7 @@ const FilterBarComponent: React.FC<FilterBarProps> = ({
 }) => {
   const activeCategories = categories || ALL_CATEGORY_OPTIONS;
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const hasActiveFilters = searchQuery || selectedAuthor || selectedDomain || selectedCategory || selectedTopic || selectedCluster || selectedSubTopic || hasLinksOnly || hasMediaOnly;
+  const hasActiveFilters = searchQuery || selectedAuthor || selectedDomain || selectedCategory || selectedTopic || selectedCluster || selectedSubTopic || hasLinksOnly || hasMediaOnly || isReadLaterOnly;
 
   // Listen for '/' key to quickly focus the search bar (Linear / GitHub navigation pattern)
   useEffect(() => {
@@ -196,6 +208,24 @@ const FilterBarComponent: React.FC<FilterBarProps> = ({
             </div>
           )}
 
+          {/* Submenu Trend Button */}
+          {onToggleAiBriefing && (
+            <button
+              id="filter-briefing-toggle"
+              type="button"
+              onClick={onToggleAiBriefing}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition cursor-pointer border ${
+                isAiBriefingOpen
+                  ? 'bg-emerald-600 text-white border-emerald-700 font-semibold shadow-2xs'
+                  : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+              }`}
+              title="Open Trend & Weekly Activity submenu"
+            >
+              <TrendingUp className={`w-3.5 h-3.5 ${isAiBriefingOpen ? 'text-white' : 'text-slate-500'}`} />
+              <span className="hidden sm:inline">Trend</span>
+            </button>
+          )}
+
           {/* View Mode Switcher */}
           <div className="flex items-center bg-slate-100/90 border border-slate-200 p-0.5 rounded-xl">
             <button
@@ -231,6 +261,31 @@ const FilterBarComponent: React.FC<FilterBarProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-slate-100 text-xs">
         <div className="flex flex-wrap items-center gap-2">
           
+          {/* Quick Filter: Read Later */}
+          {onToggleReadLaterOnly && (
+            <button
+              id="filter-read-later"
+              type="button"
+              onClick={onToggleReadLaterOnly}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition cursor-pointer ${
+                isReadLaterOnly
+                  ? 'bg-amber-100/90 border-amber-300 text-amber-950 font-semibold shadow-2xs ring-1 ring-amber-400/50'
+                  : 'bg-white border-slate-200 text-slate-700 hover:border-amber-300 hover:bg-amber-50/50'
+              }`}
+              title="Filter timeline to show only snippets saved in your Read Later list"
+            >
+              <Bookmark className={`w-3 h-3 ${isReadLaterOnly ? 'text-amber-700 fill-amber-500' : 'text-slate-500'}`} />
+              <span>Read Later</span>
+              {toReadCount > 0 && (
+                <span className={`font-mono text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  isReadLaterOnly ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-900 border border-amber-200'
+                }`}>
+                  {toReadCount}
+                </span>
+              )}
+            </button>
+          )}
+
           {/* Quick Filter: Has Links */}
           <button
             onClick={onToggleHasLinks}
@@ -408,6 +463,23 @@ const FilterBarComponent: React.FC<FilterBarProps> = ({
             </span>
           )}
 
+          {/* Active Read Later Filter Badge */}
+          {isReadLaterOnly && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-100 text-amber-950 border border-amber-300 text-xs font-semibold shadow-2xs">
+              <Bookmark className="w-3 h-3 text-amber-700 fill-amber-500" />
+              <span>Read Later List ({toReadCount || filteredCount})</span>
+              {onToggleReadLaterOnly && (
+                <button
+                  onClick={onToggleReadLaterOnly}
+                  className="hover:text-rose-600 text-amber-800 cursor-pointer"
+                  title="Clear Read Later Filter"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </span>
+          )}
+
           {/* Active Topic Filter Badge */}
           {selectedTopic && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 border border-slate-300 text-xs font-semibold shadow-2xs">
@@ -464,16 +536,13 @@ const FilterBarComponent: React.FC<FilterBarProps> = ({
               id="sort-by-select"
               value={sortBy}
               onChange={(e) => onSortChange(e.target.value as any)}
-              className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 focus:outline-none focus:border-slate-800 cursor-pointer"
+              className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 focus:outline-none focus:border-slate-800 cursor-pointer font-medium"
             >
+              <option value="newest">Newest scanned</option>
               <option value="latest_date">Latest by Date</option>
-              <option value="oldest_date">Oldest by Date</option>
-              <option value="latest_synced">Recently Synced (Newest)</option>
-              <option value="oldest_synced">Earliest Synced</option>
-              <option value="newest">Newest Scanned</option>
-              <option value="oldest">Oldest Scanned</option>
-              <option value="likes">Most Likes</option>
-              <option value="retweets">Most Reposts</option>
+              <option value="oldest_date">Oldest by date</option>
+              <option value="likes">Most likes</option>
+              <option value="retweets">Most reposts</option>
             </select>
           </div>
         </div>

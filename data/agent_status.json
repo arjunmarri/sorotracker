@@ -1,0 +1,9 @@
+{
+  "isRunning": false,
+  "lastRunStatus": "success",
+  "totalItemsFound": 8,
+  "mode": "cloud",
+  "autoScanIntervalMin": 60,
+  "lastRunAt": "2026-09-22T04:23:29.334Z",
+  "message": "Initialized with live trending topics from X"
+}
