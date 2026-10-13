@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const AUTH_FILE = path.join(DATA_DIR, 'auth_config.json');

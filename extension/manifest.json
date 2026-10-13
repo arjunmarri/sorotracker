@@ -1,11 +1,13 @@
 {
   "manifest_version": 3,
   "name": "SoroTrack Extension",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Preserves and extracts tweets, authors, bookmarks, and references on X (x.com), automatically adding snippets to SoroTrack when bookmarked or viewed.",
   "permissions": [
     "storage",
-    "activeTab"
+    "unlimitedStorage",
+    "activeTab",
+    "alarms"
   ],
   "host_permissions": [
     "*://x.com/*",
@@ -30,7 +32,18 @@
         "*://twitter.com/*"
       ],
       "js": ["content.js"],
+      "css": ["content.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*.run.app/*",
+        "https://*/*"
+      ],
+      "js": ["dashboard-bridge.js"],
+      "run_at": "document_start"
     }
   ],
   "background": {
@@ -53,7 +66,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["viewer.html", "viewer.js", "viewer.css", "icon16.png", "icon48.png", "icon128.png"],
+      "resources": ["viewer.html", "viewer.js", "viewer.css", "icon16.png", "icon48.png", "icon128.png", "dashboard-bridge.js"],
       "matches": ["*://*/*"]
     }
   ]

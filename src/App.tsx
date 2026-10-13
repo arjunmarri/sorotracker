@@ -8,8 +8,10 @@ import { Header } from './components/Header';
 import { SummarySection } from './components/SummarySection';
 import { FilterBar } from './components/FilterBar';
 import { RecordCard } from './components/RecordCard';
-import { XHistoryRecord, AISummaryResult, UserProfile, SiteSettings, SiteTheme, ContentFilterCategory, SubTopic, ReaderFontSize, SortOption, TopContentItem, AgentRunStatus, SubmenuType } from './types';
+import { XHistoryRecord, AISummaryResult, UserProfile, SiteSettings, SiteTheme, ContentFilterCategory, SubTopic, ReaderFontSize, SortOption, TopContentItem, AgentRunStatus, SubmenuType, ExtensionVersionInfo } from './types';
 import { ExtensionDrawer, ExtensionDrawerTab } from './components/ExtensionDrawer';
+import { ExtensionUpgradeAlert } from './components/ExtensionUpgradeAlert';
+import { checkExtensionVersion } from './lib/extensionVersion';
 import { AdminPanel } from './components/AdminPanel';
 import { AuthModal } from './components/AuthModal';
 import { ImportJsonModal } from './components/ImportJsonModal';
@@ -52,7 +54,9 @@ import {
   Bookmark,
   TrendingUp,
   LayoutList,
-  Bot
+  Bot,
+  Lock,
+  User as UserIcon
 } from 'lucide-react';
 
 export default function App() {
@@ -85,6 +89,35 @@ export default function App() {
   } | null>(null);
   const [isQuotaBannerDismissed, setIsQuotaBannerDismissed] = useState(false);
 
+  // Proactive Browser Extension Version Tracking
+  const [extensionVersionInfo, setExtensionVersionInfo] = useState<ExtensionVersionInfo | null>(null);
+
+  const checkVersion = useCallback(async (simulatedVer?: string | null) => {
+    try {
+      const info = await checkExtensionVersion(simulatedVer);
+      setExtensionVersionInfo(info);
+    } catch (e) {
+      console.warn('[Extension Version Check]', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkVersion();
+
+    // Re-check proactively when extension bridge emits or window regains focus
+    const onExtDetected = () => {
+      checkVersion();
+    };
+
+    window.addEventListener('SOROTRACK_EXTENSION_DETECTED', onExtDetected);
+    window.addEventListener('focus', onExtDetected);
+
+    return () => {
+      window.removeEventListener('SOROTRACK_EXTENSION_DETECTED', onExtDetected);
+      window.removeEventListener('focus', onExtDetected);
+    };
+  }, [checkVersion]);
+
   // Notifications
   const [toast, setToast] = useState<{ 
     message: string; 
@@ -105,6 +138,7 @@ export default function App() {
 
   // User Authentication & Admin Management
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [archiveScope, setArchiveScope] = useState<'my' | 'all'>('my');
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
 
@@ -448,8 +482,13 @@ export default function App() {
       if (hasLinksOnly) params.append('hasLinks', 'true');
       if (hasMediaOnly) params.append('hasMedia', 'true');
       if (sortBy) params.append('sort', sortBy);
+      if (archiveScope) params.append('scope', archiveScope);
 
-      const res = await fetch(`/api/records?${params.toString()}`);
+      const headers: Record<string, string> = {};
+      if (currentUser?.id) headers['x-user-id'] = currentUser.id;
+      if (currentUser?.email) headers['x-user-email'] = currentUser.email;
+
+      const res = await fetch(`/api/records?${params.toString()}`, { headers });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (data.records && Array.isArray(data.records)) {
@@ -468,7 +507,7 @@ export default function App() {
     } finally {
       setIsLoadingRecords(false);
     }
-  }, [debouncedSearchQuery, selectedAuthor, selectedTopic, topicKeywords, hasLinksOnly, hasMediaOnly, sortBy]);
+  }, [debouncedSearchQuery, selectedAuthor, selectedTopic, topicKeywords, hasLinksOnly, hasMediaOnly, sortBy, currentUser, archiveScope]);
 
   // Initial load
   useEffect(() => {
@@ -486,6 +525,34 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  // Bridge authenticated user session with SoroTrack browser extension
+  useEffect(() => {
+    if (currentUser) {
+      document.documentElement.setAttribute('data-sorotrack-user-id', currentUser.id);
+      document.documentElement.setAttribute('data-sorotrack-user-email', currentUser.email);
+      try {
+        window.postMessage({
+          type: 'SOROTRACK_USER_LOGIN',
+          user: {
+            id: currentUser.id,
+            email: currentUser.email,
+            displayName: currentUser.displayName,
+            photoURL: currentUser.photoURL,
+            role: currentUser.role
+          }
+        }, '*');
+      } catch {}
+    } else {
+      document.documentElement.removeAttribute('data-sorotrack-user-id');
+      document.documentElement.removeAttribute('data-sorotrack-user-email');
+      try {
+        window.postMessage({
+          type: 'SOROTRACK_USER_LOGOUT'
+        }, '*');
+      } catch {}
+    }
+  }, [currentUser]);
 
   // Keyboard shortcut listener (Ctrl+Alt+A or Cmd+Alt+A or Ctrl+Shift+A) & URL trigger for admin access
   useEffect(() => {
@@ -1031,7 +1098,7 @@ export default function App() {
 
   // Sliced records for non-blocking 60fps progressive rendering (25 by default)
   const visibleRecords = useMemo(() => {
-    return displayedRecords.slice(0, visibleCount);
+    return (displayedRecords || []).slice(0, visibleCount);
   }, [displayedRecords, visibleCount]);
 
   // Infinite Scroll: dynamically load next 25 snippets when user scrolls towards bottom
@@ -1263,6 +1330,7 @@ export default function App() {
         siteName={siteSettings.siteName}
         tagline={siteSettings.tagline}
         currentUser={currentUser}
+        extensionVersionInfo={extensionVersionInfo}
         onOpenExtensionDrawer={() => handleOpenExtensionDrawer('download')}
         onOpenAdmin={() => setIsAdminOpen(true)}
         onOpenAuth={() => setIsAuthOpen(true)}
@@ -1279,6 +1347,14 @@ export default function App() {
         onOpenTopContent={() => handleSelectSubmenu('top-content')}
         currentTheme={siteSettings.theme}
         onToggleTheme={handleToggleTheme}
+      />
+
+      {/* Proactive Extension Upgrade Alert Banner */}
+      <ExtensionUpgradeAlert
+        versionInfo={extensionVersionInfo}
+        onOpenExtensionDrawer={() => handleOpenExtensionDrawer('setup')}
+        onCheckAgain={checkVersion}
+        onSimulateVersion={(ver) => checkVersion(ver)}
       />
 
       {/* Anon Mode Notification Banner */}
@@ -1340,6 +1416,64 @@ export default function App() {
                 title="Dismiss notice"
               >
                 Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* User Account Welcome / Connect Notice */}
+        {!currentUser && (
+          <div className="mb-6 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-blue-500/10 via-indigo-500/10 to-blue-500/10 dark:from-blue-950/40 dark:via-indigo-950/30 dark:to-blue-950/40 border border-blue-200/80 dark:border-blue-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-2xs">
+            <div className="flex items-start sm:items-center gap-3.5">
+              <div className="p-2.5 bg-blue-600 text-white rounded-xl shadow-xs shrink-0">
+                <Lock className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-sans font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <span>Personal 𝕏 Bookmarks &amp; Reading Archive</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-mono font-medium">Account Protected</span>
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-stone-300 mt-0.5">
+                  Connect your account to preserve, organize, and view your private Twitter bookmarks. Only you can view your own bookmarks and reading records.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsAuthOpen(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
+              >
+                <UserIcon className="w-3.5 h-3.5" />
+                <span>Connect Account</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Admin Scope Switcher: My Bookmarks vs All Archives */}
+        {currentUser?.role === 'admin' && (
+          <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-stone-850 border border-slate-200 dark:border-stone-800 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-slate-800 dark:text-stone-200">Admin Archive Mode:</span>
+              <span className="text-[11px] text-slate-500 dark:text-stone-400">
+                {archiveScope === 'my' ? 'Showing only your personal bookmarks' : 'Viewing global archive (all users)'}
+              </span>
+            </div>
+            <div className="inline-flex rounded-lg bg-slate-200 dark:bg-stone-800 p-0.5 border border-slate-300 dark:border-stone-700">
+              <button
+                type="button"
+                onClick={() => setArchiveScope('my')}
+                className={`px-3 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${archiveScope === 'my' ? 'bg-white dark:bg-stone-700 text-slate-900 dark:text-white shadow-2xs' : 'text-slate-600 dark:text-stone-400 hover:text-slate-900'}`}
+              >
+                My Bookmarks ({currentUser.email.split('@')[0]})
+              </button>
+              <button
+                type="button"
+                onClick={() => setArchiveScope('all')}
+                className={`px-3 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${archiveScope === 'all' ? 'bg-white dark:bg-stone-700 text-slate-900 dark:text-white shadow-2xs' : 'text-slate-600 dark:text-stone-400 hover:text-slate-900'}`}
+              >
+                All Archives (Admin)
               </button>
             </div>
           </div>
@@ -1866,6 +2000,8 @@ export default function App() {
         onOpenAdmin={() => setIsAdminOpen(true)}
         onExportJson={handleExportJsonArchive}
         onOpenImportJson={handleOpenImportModal}
+        versionInfo={extensionVersionInfo}
+        onCheckVersionAgain={checkVersion}
       />
 
       {/* Admin Panel Control Center */}
@@ -1876,6 +2012,7 @@ export default function App() {
         settings={siteSettings}
         onUpdateSettings={handleUpdateSettings}
         onThemeChange={handleThemeChange}
+        versionInfo={extensionVersionInfo}
       />
 
       {/* User Login & Registration Modal */}

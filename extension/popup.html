@@ -96,7 +96,7 @@
       color: #94a3b8;
       margin-bottom: 4px;
     }
-    input[type="text"] {
+    input[type="text"], input[type="email"], input[type="password"] {
       width: 100%;
       box-sizing: border-box;
       padding: 6px 8px;
@@ -105,6 +105,50 @@
       border-radius: 6px;
       color: #f1f5f9;
       font-size: 12px;
+    }
+    .account-card {
+      background: #162032;
+      border: 1px solid #27374f;
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 12px;
+    }
+    .account-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: #2563eb;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+    .bookmark-item {
+      background: #101622;
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      padding: 8px;
+      margin-bottom: 6px;
+      font-size: 11px;
+    }
+    .bookmark-text {
+      color: #e2e8f0;
+      line-height: 1.35;
+      margin-bottom: 4px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .bookmark-author {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #94a3b8;
+      font-size: 10px;
     }
     .footer {
       margin-top: 12px;
@@ -123,10 +167,118 @@
 <body>
   <div class="header">
     <div class="logo-badge">X</div>
-    <div>
-      <h2>SoroTrack Extension</h2>
-      <div class="subtitle">Extracts & saves to JSON (Manual Sync)</div>
+    <div style="flex: 1;">
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <h2>SoroTrack Extension</h2>
+        <span id="popup-installed-version" style="font-size: 10px; font-weight: 700; color: #94a3b8; background: #1e293b; padding: 2px 6px; border-radius: 4px; border: 1px solid #334155;">v1.1.0</span>
+      </div>
+      <div class="subtitle">Extracts &amp; saves to JSON (Manual Sync)</div>
     </div>
+  </div>
+
+  <!-- User Account Management & Personal Bookmarks Card -->
+  <div class="account-card" id="user-account-card">
+    <!-- Logged Out View -->
+    <div id="account-logged-out" style="display: block;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+        <span style="font-weight: 700; font-size: 12px; color: #f1f5f9; display: flex; align-items: center; gap: 5px;">
+          <span>👤</span>
+          <span>Account Login</span>
+        </span>
+        <span style="font-size: 10px; color: #f59e0b; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); padding: 1px 5px; border-radius: 4px;">Private Bookmarks</span>
+      </div>
+      <p style="font-size: 10.5px; color: #94a3b8; margin: 0 0 8px 0; line-height: 1.35;">
+        Only users who connect their account can view and sync their personal bookmarks.
+      </p>
+
+      <div style="margin-bottom: 6px;">
+        <input type="email" id="popup-login-email" placeholder="name@example.com" style="margin-bottom: 6px;">
+        <input type="password" id="popup-login-password" placeholder="Password (••••••••)" style="margin-bottom: 6px;">
+      </div>
+
+      <div style="display: flex; gap: 6px; margin-bottom: 6px;">
+        <button id="popup-login-btn" class="btn btn-primary" style="margin-bottom: 0; flex: 1.2;">Sign In</button>
+        <button id="popup-register-btn" class="btn btn-secondary" style="margin-bottom: 0; flex: 1;">Register</button>
+      </div>
+
+      <button id="popup-google-btn" class="btn btn-secondary" style="margin-bottom: 0; border-color: #3b82f6; color: #93c5fd; display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 600;">
+        <span>🌐</span>
+        <span>Connect via Google / Dashboard</span>
+      </button>
+
+      <div id="popup-account-msg" style="display: none; margin-top: 6px; font-size: 10.5px; padding: 4px 6px; border-radius: 4px;"></div>
+    </div>
+
+    <!-- Logged In View -->
+    <div id="account-logged-in" style="display: none;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div id="popup-user-avatar" class="account-avatar">U</div>
+          <div>
+            <div id="popup-user-name" style="font-size: 12px; font-weight: 700; color: #f1f5f9; line-height: 1.2;">User</div>
+            <div id="popup-user-email" style="font-size: 10px; color: #94a3b8; line-height: 1.2;">user@example.com</div>
+          </div>
+        </div>
+        <div style="text-align: right;">
+          <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; color: #10b981; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); padding: 1px 6px; border-radius: 10px;">
+            <span style="width: 5px; height: 5px; border-radius: 50%; background: #10b981;"></span>
+            <span>Connected</span>
+          </span>
+          <div id="popup-user-role" style="font-size: 9.5px; color: #cbd5e1; text-transform: uppercase; margin-top: 2px;">User</div>
+        </div>
+      </div>
+
+      <!-- User's Personal Bookmarks Summary -->
+      <div style="background: #101726; border: 1px solid #1e293b; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 5px;">
+          <span style="font-size: 13px;">🔖</span>
+          <span style="font-size: 11px; color: #cbd5e1; font-weight: 600;">
+            <span id="popup-user-bookmarks-count" style="color: #38bdf8; font-weight: 700;">0</span> Personal Bookmarks
+          </span>
+        </div>
+        <button id="toggle-user-bookmarks-btn" style="background: none; border: none; color: #38bdf8; font-size: 11px; cursor: pointer; text-decoration: underline; padding: 0;">
+          View Bookmarks ▾
+        </button>
+      </div>
+
+      <div style="display: flex; gap: 6px;">
+        <button id="popup-open-viewer-btn" class="btn btn-secondary" style="margin-bottom: 0; flex: 1.5; border-color: #059669; color: #a7f3d0; font-weight: 600;">
+          🪟 Open Viewer
+        </button>
+        <button id="popup-logout-btn" class="btn btn-secondary" style="margin-bottom: 0; flex: 1; border-color: #475569; color: #94a3b8;">
+          Sign Out
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Collapsible Personal Bookmarks Panel (Visible when user clicks View Bookmarks) -->
+  <div id="popup-bookmarks-panel" style="display: none; background: #162032; border: 1px solid #27374f; border-radius: 8px; padding: 10px; margin-bottom: 12px;">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+      <span style="font-weight: 700; font-size: 11.5px; color: #38bdf8;">Your Bookmarks</span>
+      <span id="close-bookmarks-panel-btn" style="cursor: pointer; color: #94a3b8; font-size: 12px; padding: 0 4px;" title="Close">✕</span>
+    </div>
+    <input type="text" id="popup-bookmarks-filter" placeholder="Search your bookmarks..." style="margin-bottom: 8px; font-size: 11px; padding: 4px 6px;">
+    <div id="popup-bookmarks-list" style="max-height: 180px; overflow-y: auto; padding-right: 2px;">
+      <!-- Populated dynamically with user's own bookmarks -->
+    </div>
+  </div>
+
+  <!-- Proactive Upgrade Alert Card -->
+  <div id="upgrade-alert-card" style="display: none; background: #2a1b08; border: 1px solid #d97706; border-radius: 8px; padding: 10px; margin-bottom: 12px; font-size: 11px;">
+    <div style="font-weight: 700; color: #fbbf24; display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+      <span style="display: flex; align-items: center; gap: 5px;">
+        <span>🚀</span>
+        <span>Upgrade Available: <strong id="upgrade-version-tag">v1.2.0</strong></span>
+      </span>
+      <span id="upgrade-dismiss-btn" style="cursor: pointer; opacity: 0.8; font-size: 13px; padding: 0 4px;" title="Dismiss alert">✕</span>
+    </div>
+    <div id="upgrade-notes" style="color: #fde68a; margin-bottom: 8px; line-height: 1.35;">
+      A newer version is ready on SoroTrack. Upgrade to get latest features &amp; bug fixes.
+    </div>
+    <button id="upgrade-download-btn" class="btn btn-primary" style="background: #f59e0b; border-color: #d97706; color: #1c1917; font-weight: 700; margin-bottom: 0;">
+      ⬇ Download <span id="upgrade-btn-version">v1.2.0</span> Upgrade (.zip)
+    </button>
   </div>
 
   <div class="status-card">
@@ -164,6 +316,20 @@
   <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 7px 10px; margin-bottom: 10px; font-size: 10.5px; color: #fde68a; display: flex; align-items: center; gap: 7px; line-height: 1.35;">
     <span style="font-size: 13px; shrink-0;">🔖</span>
     <span><strong>Auto-Add on Bookmark:</strong> Click bookmark on any tweet across all of X to instantly capture &amp; sync to SoroTrack.</span>
+  </div>
+
+  <!-- First Install / Empty Local Storage Card -->
+  <div id="first-install-card" style="display: none; background: #0f2744; border: 1px solid #0284c7; border-radius: 8px; padding: 10px; margin-bottom: 12px; font-size: 11px;">
+    <div style="font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 5px; margin-bottom: 4px;">
+      <span>⚡</span>
+      <span>First Install: Sync Server Archive</span>
+    </div>
+    <div style="color: #cbd5e1; margin-bottom: 8px; line-height: 1.35;">
+      New installation detected. Download all saved snippets from the server to your browser's local JSON archive.
+    </div>
+    <button id="first-install-download-btn" class="btn btn-primary" style="background: #0284c7; border-color: #0369a1; margin-bottom: 0;">
+      ⬇ Download All Snippets Locally
+    </button>
   </div>
 
   <!-- Prompt card when unsynced bookmarks are waiting in JSON -->

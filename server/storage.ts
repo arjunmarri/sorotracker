@@ -16,6 +16,7 @@ const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const TOP_CONTENT_FILE = path.join(DATA_DIR, 'top_content.json');
 const AGENT_STATUS_FILE = path.join(DATA_DIR, 'agent_status.json');
+const EXTENSION_STATUS_FILE = path.join(DATA_DIR, 'extension_status.json');
 
 // In-memory cache synced with GCP Firestore
 let recordsMap = new Map<string, XHistoryRecord>();
@@ -30,6 +31,12 @@ let agentStatus: AgentRunStatus = {
   totalItemsFound: 0,
   mode: 'cloud',
   autoScanIntervalMin: 60
+};
+// Extension version status
+let extensionStatus = {
+  latestVersion: '1.1.0',
+  installedVersion: '1.0.0' as string | null,
+  lastCheckedAt: new Date().toISOString()
 };
 // Site settings cache
 let currentSettings: SiteSettings = {
@@ -159,6 +166,28 @@ function initUsersAndSettings() {
       console.warn('[Storage] Error loading agent_status.json:', e);
     }
   }
+
+  // 5. Load extension version status
+  if (fs.existsSync(EXTENSION_STATUS_FILE)) {
+    try {
+      const raw = fs.readFileSync(EXTENSION_STATUS_FILE, 'utf-8');
+      const loaded = JSON.parse(raw);
+      if (loaded && typeof loaded === 'object') {
+        extensionStatus = { ...extensionStatus, ...loaded };
+      }
+    } catch (e) {
+      console.warn('[Storage] Error loading extension_status.json:', e);
+    }
+  }
+}
+
+function persistExtensionStatusToDisk() {
+  try {
+    ensureDataDir();
+    fs.writeFileSync(EXTENSION_STATUS_FILE, JSON.stringify(extensionStatus, null, 2), 'utf-8');
+  } catch (e: any) {
+    console.warn('[Storage] Notice writing extension status to disk:', e?.message || e);
+  }
 }
 
 function persistTopContentToDisk() {
@@ -199,6 +228,31 @@ function persistSettingsToDisk() {
   }
 }
 
+export function sanitizeAndNormalizeRecord(item: any): XHistoryRecord {
+  const authorName = item.authorName || item.author || item.name || item.authorHandle || 'User';
+  const authorHandle = item.authorHandle || item.handle || (item.author ? item.author.replace(/^@/, '') : 'user');
+  const tweetText = item.text || item.tweetText || '';
+  const tweetUrl = item.tweetUrl || item.url || (item.id ? `https://x.com/${authorHandle}/status/${item.id}` : '');
+  
+  return {
+    ...item,
+    id: String(item.id || item.tweetId || 'rec_' + Math.random().toString(36).slice(2, 9)),
+    userId: item.userId ? String(item.userId) : undefined,
+    userEmail: item.userEmail ? String(item.userEmail) : undefined,
+    authorName: String(authorName),
+    authorHandle: String(authorHandle).replace(/^@/, ''),
+    text: String(tweetText),
+    tweetUrl: String(tweetUrl),
+    createdAt: item.createdAt || item.timestamp || item.scannedAt || new Date().toISOString(),
+    scannedAt: item.scannedAt || item.timestamp || new Date().toISOString(),
+    syncedAt: item.syncedAt || item.scannedAt || new Date().toISOString(),
+    links: Array.isArray(item.links) ? item.links : [],
+    media: Array.isArray(item.media) ? item.media : [],
+    tags: Array.isArray(item.tags) ? item.tags : [],
+    labels: Array.isArray(item.labels) ? item.labels : []
+  };
+}
+
 /**
  * Initializes storage instantly from local disk, then initiates background GCP Firestore sync.
  * Guarantees zero-delay dev server startup and continuous availability.
@@ -212,15 +266,13 @@ export async function initStorage() {
   if (fs.existsSync(DATA_FILE)) {
     try {
       const raw = fs.readFileSync(DATA_FILE, 'utf-8');
-      const diskRecords: XHistoryRecord[] = JSON.parse(raw);
+      const diskRecords: any[] = JSON.parse(raw);
       if (Array.isArray(diskRecords) && diskRecords.length > 0) {
         let prunedInvalidCount = 0;
-        diskRecords.forEach(item => {
-          if (item && item.id) {
+        diskRecords.forEach(rawItem => {
+          if (rawItem && (rawItem.id || rawItem.url || rawItem.tweetUrl)) {
+            const item = sanitizeAndNormalizeRecord(rawItem);
             if (isAllowedSourcePage(item.sourcePage)) {
-              if (!item.syncedAt) {
-                item.syncedAt = item.scannedAt || item.createdAt || new Date().toISOString();
-              }
               recordsMap.set(item.id, item);
             } else {
               prunedInvalidCount++;
@@ -245,13 +297,13 @@ export async function initStorage() {
     try {
       const cloudRecords = await fetchRecordsFromFirestore();
       if (cloudRecords && cloudRecords.length > 0) {
-        cloudRecords.forEach(item => {
-          if (item && item.id && isAllowedSourcePage(item.sourcePage)) {
-            if (!item.syncedAt) {
-              item.syncedAt = item.scannedAt || item.createdAt || new Date().toISOString();
+        cloudRecords.forEach((rawItem: any) => {
+          if (rawItem && (rawItem.id || rawItem.url || rawItem.tweetUrl)) {
+            const item = sanitizeAndNormalizeRecord(rawItem);
+            if (isAllowedSourcePage(item.sourcePage)) {
+              recordsMap.set(item.id, item);
+              syncedToFirestoreIds.add(item.id);
             }
-            recordsMap.set(item.id, item);
-            syncedToFirestoreIds.add(item.id);
           }
         });
         gcpCollectionRecordCount = cloudRecords.length;
@@ -289,14 +341,39 @@ export function getAllRecords(options?: {
   sort?: 'latest_date' | 'oldest_date' | 'latest_synced' | 'oldest_synced' | 'newest' | 'oldest' | 'likes' | 'retweets';
   includeRecycled?: boolean;
   onlyRecycled?: boolean;
+  userId?: string;
+  userEmail?: string;
+  isAdmin?: boolean;
+  scope?: 'my' | 'all';
 }): XHistoryRecord[] {
-  let list = Array.from(recordsMap.values());
+  let list = Array.from(recordsMap.values()).map(sanitizeAndNormalizeRecord);
 
   // Filter out recycled records unless explicitly requested
   if (options?.onlyRecycled) {
     list = list.filter(r => r.isRecycled === true);
   } else if (!options?.includeRecycled) {
     list = list.filter(r => !r.isRecycled);
+  }
+
+  // User account privacy isolation:
+  // "Only users who connect their account should see their own bookmarks and not others"
+  if (options) {
+    const { userId, userEmail, isAdmin, scope } = options;
+    const reqEmail = userEmail ? userEmail.toLowerCase().trim() : null;
+
+    if (isAdmin && scope === 'all') {
+      // Admin specifically viewing full global archive
+    } else if (userId || reqEmail) {
+      // Connected user: strictly show their own bookmarks and records
+      list = list.filter(r => {
+        const matchesId = Boolean(userId && r.userId === userId);
+        const matchesEmail = Boolean(reqEmail && r.userEmail && r.userEmail.toLowerCase().trim() === reqEmail);
+        return matchesId || matchesEmail;
+      });
+    } else {
+      // Unauthenticated visitor / guest: only show unassigned public records, NEVER other users' private bookmarks
+      list = list.filter(r => !r.userId && !r.userEmail);
+    }
   }
 
   if (options) {
@@ -424,7 +501,11 @@ export function getAllRecords(options?: {
 /**
  * Save incoming real records pushed by browser extension through middleware
  */
-export async function saveRecords(incoming: XHistoryRecord[]): Promise<{ 
+export async function saveRecords(
+  incoming: XHistoryRecord[],
+  defaultUserId?: string,
+  defaultUserEmail?: string
+): Promise<{ 
   added: number; 
   total: number; 
   gcpSaved: number;
@@ -442,39 +523,56 @@ export async function saveRecords(incoming: XHistoryRecord[]): Promise<{
   });
 
   validIncoming.forEach(item => {
-    if (!item.id && item.tweetUrl) {
-      const m = item.tweetUrl.match(/status\/(\d+)/);
-      item.id = m ? m[1] : 'rec_' + Math.random().toString(36).slice(2, 9);
+    const normalizedItem = sanitizeAndNormalizeRecord(item);
+    if (!normalizedItem.id && normalizedItem.tweetUrl) {
+      const m = normalizedItem.tweetUrl.match(/status\/(\d+)/);
+      normalizedItem.id = m ? m[1] : 'rec_' + Math.random().toString(36).slice(2, 9);
     }
 
-    if (item.id) {
-      const isNew = !recordsMap.has(item.id);
-      const isNotYetInFirestore = !syncedToFirestoreIds.has(item.id);
-      const syncTime = item.syncedAt || nowIso;
+    if (!normalizedItem.userId && defaultUserId) {
+      normalizedItem.userId = defaultUserId;
+    }
+    if (!normalizedItem.userEmail && defaultUserEmail) {
+      normalizedItem.userEmail = defaultUserEmail;
+    }
+
+    if (normalizedItem.id) {
+      const isNew = !recordsMap.has(normalizedItem.id);
+      const isNotYetInFirestore = !syncedToFirestoreIds.has(normalizedItem.id);
+      const syncTime = normalizedItem.syncedAt || nowIso;
 
       if (isNew) {
         added++;
         const record: XHistoryRecord = {
-          ...item,
-          isBookmarked: item.isBookmarked ?? (item.tags?.includes('bookmark') || false),
-          bookmarkedAt: item.bookmarkedAt || (item.isBookmarked ? (item.scannedAt || nowIso) : undefined),
-          scannedAt: item.scannedAt || nowIso,
+          ...normalizedItem,
+          isBookmarked: normalizedItem.isBookmarked ?? (normalizedItem.tags?.includes('bookmark') || false),
+          bookmarkedAt: normalizedItem.bookmarkedAt || (normalizedItem.isBookmarked ? (normalizedItem.scannedAt || nowIso) : undefined),
+          scannedAt: normalizedItem.scannedAt || nowIso,
           syncedAt: syncTime
         };
-        recordsMap.set(item.id, record);
+        recordsMap.set(normalizedItem.id, record);
         itemsToPersist.push(record);
       } else {
-        const existing = recordsMap.get(item.id)!;
+        const existing = recordsMap.get(normalizedItem.id)!;
         let modified = false;
+        // Merge any richer data
+        if (!existing.authorName && normalizedItem.authorName) {
+          existing.authorName = normalizedItem.authorName;
+          modified = true;
+        }
+        if (!existing.text && normalizedItem.text) {
+          existing.text = normalizedItem.text;
+          modified = true;
+        }
         // Ensure syncedAt timestamp is updated when snippet is synced or if missing
-        if (item.syncedAt || !existing.syncedAt) {
-          existing.syncedAt = item.syncedAt || nowIso;
+        if (normalizedItem.syncedAt || !existing.syncedAt) {
+          existing.syncedAt = normalizedItem.syncedAt || nowIso;
           modified = true;
         }
         // If existing record was bookmarked now, update bookmark fields
-        if (item.isBookmarked && !existing.isBookmarked) {
+        if (normalizedItem.isBookmarked && !existing.isBookmarked) {
           existing.isBookmarked = true;
-          existing.bookmarkedAt = item.bookmarkedAt || nowIso;
+          existing.bookmarkedAt = normalizedItem.bookmarkedAt || nowIso;
           if (!existing.tags) existing.tags = [];
           if (!existing.tags.includes('bookmark')) existing.tags.push('bookmark');
           modified = true;
@@ -516,7 +614,20 @@ export async function saveRecords(incoming: XHistoryRecord[]): Promise<{
   };
 }
 
-export async function deleteRecord(id: string): Promise<boolean> {
+export async function deleteRecord(id: string, userId?: string, userEmail?: string, isAdmin?: boolean): Promise<boolean> {
+  const existing = recordsMap.get(id);
+  if (!existing) return false;
+
+  // Enforce account ownership: non-admin can only delete their own records
+  if (!isAdmin && (userId || userEmail)) {
+    const reqEmail = userEmail ? userEmail.toLowerCase().trim() : null;
+    const matchesId = Boolean(userId && existing.userId === userId);
+    const matchesEmail = Boolean(reqEmail && existing.userEmail && existing.userEmail.toLowerCase().trim() === reqEmail);
+    if (!matchesId && !matchesEmail) {
+      throw new Error('Unauthorized: You can only delete your own bookmarks and records.');
+    }
+  }
+
   const deleted = recordsMap.delete(id);
   syncedToFirestoreIds.delete(id);
   if (deleted) {
@@ -608,13 +719,42 @@ export async function emptyRecycleBin(): Promise<number> {
   return await deleteMultipleRecords(recycledIds);
 }
 
-export async function clearAllRecords(): Promise<void> {
-  recordsMap.clear();
-  syncedToFirestoreIds.clear();
-  persistToDisk();
-  await clearFirestoreCollection().catch(err => {
-    console.warn('[Storage] Error clearing GCP collection:', err);
-  });
+export async function clearAllRecords(userId?: string, userEmail?: string, isAdmin?: boolean): Promise<{ deleted: number }> {
+  // If administrator without specific user filter, clear global collection
+  if (isAdmin && !userId && !userEmail) {
+    const count = recordsMap.size;
+    recordsMap.clear();
+    syncedToFirestoreIds.clear();
+    persistToDisk();
+    await clearFirestoreCollection().catch(err => {
+      console.warn('[Storage] Error clearing GCP collection:', err);
+    });
+    return { deleted: count };
+  }
+
+  // Otherwise, clear ONLY this specific user's bookmarks and records
+  const reqEmail = userEmail ? userEmail.toLowerCase().trim() : null;
+  const toDelete: string[] = [];
+
+  for (const [id, r] of recordsMap.entries()) {
+    const matchesId = Boolean(userId && r.userId === userId);
+    const matchesEmail = Boolean(reqEmail && r.userEmail && r.userEmail.toLowerCase().trim() === reqEmail);
+    if (matchesId || matchesEmail) {
+      toDelete.push(id);
+    }
+  }
+
+  for (const id of toDelete) {
+    recordsMap.delete(id);
+    syncedToFirestoreIds.delete(id);
+    deleteRecordFromFirestore(id).catch(() => {});
+  }
+
+  if (toDelete.length > 0) {
+    persistToDisk();
+  }
+
+  return { deleted: toDelete.length };
 }
 
 export function getStorageStatus() {
@@ -640,6 +780,14 @@ export function getAllUsers(): UserProfile[] {
 
 export function getUserById(id: string): UserProfile | undefined {
   return usersMap.get(id);
+}
+
+export function getUserByEmail(email: string): UserProfile | undefined {
+  const clean = (email || '').trim().toLowerCase();
+  for (const u of usersMap.values()) {
+    if (u.email.toLowerCase() === clean) return u;
+  }
+  return undefined;
 }
 
 export function createUser(payload: Partial<UserProfile>): UserProfile {
@@ -820,4 +968,27 @@ export function updateAgentStatus(updates: Partial<AgentRunStatus>): AgentRunSta
   persistAgentStatusToDisk();
   return { ...agentStatus };
 }
+
+export function getInstalledExtensionVersion(): string | null {
+  return extensionStatus.installedVersion;
+}
+
+export function setInstalledExtensionVersion(version: string): void {
+  if (!version || typeof version !== 'string') return;
+  extensionStatus.installedVersion = version.trim();
+  extensionStatus.lastCheckedAt = new Date().toISOString();
+  persistExtensionStatusToDisk();
+}
+
+export function getLatestExtensionVersion(): string {
+  const manifestPath = path.join(process.cwd(), 'extension', 'manifest.json');
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      if (manifest.version) return manifest.version;
+    } catch {}
+  }
+  return extensionStatus.latestVersion || '1.1.0';
+}
+
 

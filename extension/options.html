@@ -72,6 +72,36 @@
 <body>
   <h1>SoroTrack Extension Settings</h1>
 
+  <!-- User Account Section -->
+  <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #1e293b; background: #111827; border-radius: 8px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+      <div>
+        <label style="color: #38bdf8; font-size: 14px; margin-bottom: 2px;">Connected User Account</label>
+        <div class="desc" style="margin-bottom: 0;">Only users who connect their account can see and sync their own bookmarks.</div>
+      </div>
+      <div id="options-account-status" style="font-size: 12px; font-weight: 700; color: #94a3b8;">○ Not Connected</div>
+    </div>
+    <div id="options-account-info" style="display: none; align-items: center; justify-content: space-between; margin-top: 12px; padding: 10px; background: #162032; border: 1px solid #27374f; border-radius: 6px;">
+      <div>
+        <div id="options-user-email" style="font-size: 13px; font-weight: 600; color: #f1f5f9;">user@example.com</div>
+        <div id="options-user-role" style="font-size: 11px; color: #94a3b8; text-transform: uppercase;">User</div>
+      </div>
+      <button id="options-account-logout-btn" type="button" style="background: #334155; border: 1px solid #475569; color: #f1f5f9; font-size: 11px; padding: 6px 12px; border-radius: 6px; cursor: pointer;">Sign Out</button>
+    </div>
+    <div id="options-account-login-form" style="display: block; margin-top: 12px;">
+      <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+        <input type="email" id="options-login-email" placeholder="Email (name@example.com)" style="flex: 1;">
+        <input type="password" id="options-login-password" placeholder="Password" style="flex: 1;">
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button id="options-account-login-btn" type="button" style="padding: 7px 16px;">Sign In</button>
+        <button id="options-account-register-btn" type="button" style="background: #1e293b; border: 1px solid #334155; padding: 7px 16px;">Register</button>
+        <button id="options-account-google-btn" type="button" style="background: rgba(59, 130, 246, 0.15); border: 1px solid #3b82f6; color: #93c5fd; padding: 7px 16px;">Connect with Google Cloud</button>
+      </div>
+      <div id="options-auth-msg" style="display: none; margin-top: 8px; font-size: 11px; padding: 6px; border-radius: 4px;"></div>
+    </div>
+  </div>
+
   <div class="form-group">
     <label for="dashboardUrl">SoroTrack Service URL</label>
     <div class="desc">The live web endpoint where extracted bookmarks, posts, and links are sent.</div>
@@ -103,6 +133,26 @@
     <button id="save-btn">Save Settings</button>
     <button id="test-btn" style="background: #1e293b; border: 1px solid #334155;">Test Connection</button>
     <span id="status-msg"></span>
+  </div>
+
+  <div style="margin-top: 32px; padding: 16px; border: 1px solid #1e293b; background: #111827; border-radius: 8px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+      <div>
+        <label style="color: #38bdf8; font-size: 14px; margin-bottom: 2px;">Extension Version &amp; Updates</label>
+        <div class="desc" style="margin-bottom: 0;">Installed: <strong id="options-installed-version" style="color: #f1f5f9;">v1.1.0</strong> · Latest Server: <strong id="options-latest-version" style="color: #f1f5f9;">Checking...</strong></div>
+      </div>
+      <button id="options-check-update-btn" type="button" style="background: #1e293b; border: 1px solid #334155; font-size: 12px; padding: 6px 12px;">Check Now</button>
+    </div>
+    
+    <div id="options-upgrade-alert" style="display: none; background: #2a1b08; border: 1px solid #d97706; border-radius: 6px; padding: 10px; margin-top: 10px;">
+      <div style="font-weight: 700; color: #fbbf24; font-size: 13px; margin-bottom: 4px;">
+        🚀 New Upgrade Available: <span id="options-alert-version">v1.2.0</span>
+      </div>
+      <div id="options-upgrade-notes" style="font-size: 12px; color: #fde68a; margin-bottom: 8px;"></div>
+      <button id="options-download-upgrade-btn" type="button" style="background: #f59e0b; border: none; color: #1c1917; font-weight: 700; font-size: 12px; padding: 7px 14px; border-radius: 6px; cursor: pointer;">
+        ⬇ Download Upgrade (.zip)
+      </button>
+    </div>
   </div>
 
   <div style="margin-top: 32px; padding-top: 20px; border-top: 1px solid #1e293b;">

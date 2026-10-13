@@ -22,6 +22,8 @@ export interface TweetMetrics {
 
 export interface XHistoryRecord {
   id: string;
+  userId?: string;
+  userEmail?: string;
   tweetUrl: string;
   authorName: string;
   authorHandle: string;
@@ -189,5 +191,15 @@ export interface AgentRunStatus {
   message?: string;
   autoScanIntervalMin?: number;
   mode?: 'cloud' | 'extension';
+}
+
+export interface ExtensionVersionInfo {
+  latestVersion: string;
+  installedVersion: string | null;
+  isOutdated: boolean;
+  releaseDate?: string;
+  releaseNotes?: string;
+  downloadUrl?: string;
+  detectionSource?: 'dom-bridge' | 'message-ping' | 'server-sync' | 'local-storage' | 'manual';
 }
 

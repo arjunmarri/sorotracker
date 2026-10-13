@@ -90,8 +90,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({
 }) => {
   const [pageLimit, setPageLimit] = useState(30);
 
-  const displayedRecords = records.slice(0, pageLimit);
-  const hasMore = records.length > pageLimit;
+  const safeRecords = Array.isArray(records) ? records : [];
+  const displayedRecords = safeRecords.slice(0, pageLimit);
+  const hasMore = safeRecords.length > pageLimit;
 
   return (
     <div id="search-page-container" className="space-y-5 animate-fade-in w-full">

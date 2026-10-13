@@ -130,13 +130,13 @@ const RecordCardComponent: React.FC<RecordCardProps> = ({
             {record.authorAvatarUrl ? (
               <img 
                 src={record.authorAvatarUrl} 
-                alt={record.authorName} 
+                alt={record.authorName || record.authorHandle || 'User'} 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center font-bold text-xs text-slate-700">
-                {record.authorName.slice(0, 1).toUpperCase()}
+                {((record.authorName || record.authorHandle || 'U').slice(0, 1) || 'U').toUpperCase()}
               </div>
             )}
           </a>
@@ -354,7 +354,7 @@ const RecordCardComponent: React.FC<RecordCardProps> = ({
               <span className={`w-2 h-2 rounded-full shrink-0 ${isRead ? 'bg-emerald-500 ring-2 ring-emerald-100' : 'bg-slate-300'}`}></span>
               <span className="font-medium text-slate-600">Snippet</span>
               <span className="text-slate-300">•</span>
-              <span className="text-slate-400 font-mono">#{record.id.slice(-6)}</span>
+              <span className="text-slate-400 font-mono">#{(record.id || '').slice(-6)}</span>
             </div>
           </div>
 
@@ -404,19 +404,19 @@ const RecordCardComponent: React.FC<RecordCardProps> = ({
               target="_blank"
               rel="noopener noreferrer"
               className="w-9 h-9 rounded-full bg-slate-100 shrink-0 overflow-hidden border border-slate-200 block hover:ring-2 hover:ring-sky-400 transition"
-              title={`View ${record.authorName} on X`}
+              title={`View ${record.authorName || record.authorHandle || 'User'} on X`}
               onClick={(e) => e.stopPropagation()}
             >
               {record.authorAvatarUrl ? (
                 <img 
                   src={record.authorAvatarUrl} 
-                  alt={record.authorName} 
+                  alt={record.authorName || record.authorHandle || 'User'} 
                   className="w-full h-full object-cover"
                   referrerPolicy="no-referrer"
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center font-bold text-xs text-slate-700">
-                  {record.authorName.slice(0, 1).toUpperCase()}
+                  {((record.authorName || record.authorHandle || 'U').slice(0, 1) || 'U').toUpperCase()}
                 </div>
               )}
             </a>

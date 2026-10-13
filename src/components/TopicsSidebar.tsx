@@ -529,9 +529,9 @@ const TopicsSidebarComponent: React.FC<TopicsSidebarProps> = ({
 
                 {/* Cluster Body: Topics Chips */}
                 {isClusterExpanded && (() => {
-                  const sortedTopics = [...cluster.topics].sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
+                  const sortedTopics = [...(cluster.topics || [])].sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
                   const maxSidebarTopics = 20;
-                  const displayedTopics = sortedTopics.slice(0, maxSidebarTopics);
+                  const displayedTopics = (sortedTopics || []).slice(0, maxSidebarTopics);
                   const hasMoreTopics = sortedTopics.length > maxSidebarTopics;
                   const remainingCount = sortedTopics.length - maxSidebarTopics;
 

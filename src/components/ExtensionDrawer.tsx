@@ -4,13 +4,29 @@ import {
   Download, 
   Puzzle, 
   HelpCircle, 
-  ExternalLink,
-  FolderArchive,
-  ArrowRight,
-  Upload,
-  FileJson
+  ExternalLink, 
+  FolderArchive, 
+  ArrowRight, 
+  Upload, 
+  FileJson, 
+  ArrowUpCircle, 
+  RefreshCw, 
+  CheckCircle2, 
+  Sparkles, 
+  ShieldCheck,
+  Monitor,
+  Apple,
+  Terminal,
+  Copy,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Zap,
+  ShieldAlert,
+  Code
 } from 'lucide-react';
-import { packageExtensionZip, downloadBlob } from '../lib/extensionPackager';
+import { packageExtensionZip, packageInstallerZip, detectUserOS, downloadBlob } from '../lib/extensionPackager';
+import { ExtensionVersionInfo } from '../types';
 
 export type ExtensionDrawerTab = 'download' | 'setup' | 'backup';
 
@@ -21,6 +37,8 @@ interface ExtensionDrawerProps {
   onOpenAdmin?: () => void;
   onExportJson?: () => void;
   onOpenImportJson?: (file?: File) => void;
+  versionInfo?: ExtensionVersionInfo | null;
+  onCheckVersionAgain?: (simulatedVer?: string | null) => void;
 }
 
 export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
@@ -29,16 +47,37 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
   defaultTab = 'download',
   onOpenAdmin,
   onExportJson,
-  onOpenImportJson
+  onOpenImportJson,
+  versionInfo,
+  onCheckVersionAgain
 }) => {
   const [activeTab, setActiveTab] = useState<ExtensionDrawerTab>(defaultTab);
   const [browserGuide, setBrowserGuide] = useState<'edge' | 'chrome' | 'firefox'>('edge');
+  const [setupMode, setSetupMode] = useState<'installer' | 'manual'>('installer');
+  const [installerOS, setInstallerOS] = useState<'windows' | 'mac'>('windows');
+  const [userOS, setUserOS] = useState<'windows' | 'mac' | 'linux' | 'other'>('windows');
+  const [showManualZips, setShowManualZips] = useState(false);
+  const [showTerminalCommands, setShowTerminalCommands] = useState(false);
+  const [showBrewGuide, setShowBrewGuide] = useState(false);
+  const [tapUsername, setTapUsername] = useState('your-github-username');
+  const [formulaCopied, setFormulaCopied] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [extensionFiles, setExtensionFiles] = useState<Record<string, string>>({});
   const [binaryFiles, setBinaryFiles] = useState<Record<string, string>>({});
   const [authToken, setAuthToken] = useState<string>('');
   const [isPackaging, setIsPackaging] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const os = detectUserOS();
+    setUserOS(os);
+    if (os === 'mac') {
+      setInstallerOS('mac');
+    } else {
+      setInstallerOS('windows');
+    }
+  }, []);
 
   const handleExportClick = () => {
     if (onExportJson) {
@@ -95,16 +134,154 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  const handleCopyCommand = async (command: string, key: string) => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2500);
+    } catch {
+      // Fallback
+      const ta = document.createElement('textarea');
+      ta.value = command;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2500);
+    }
+  };
+
+  const handleCopyFormula = async () => {
+    try {
+      const res = await fetch('/api/extension/brew/sorotrack.rb');
+      if (res.ok) {
+        const text = await res.text();
+        await navigator.clipboard.writeText(text);
+        setFormulaCopied(true);
+        setTimeout(() => setFormulaCopied(false), 2500);
+        return;
+      }
+    } catch {}
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+    handleCopyCommand(`brew install --formula "${origin}/api/extension/brew/sorotrack.rb"`, 'brew-direct');
+  };
+
+  const handleDownloadInstaller = async (targetOS: 'windows' | 'mac') => {
+    setIsPackaging(true);
+    try {
+      const latestVer = versionInfo?.latestVersion || '1.1.0';
+      const filename = `sorotrack-installer-${targetOS}-v${latestVer}.zip`;
+
+      // 1. Try server pre-generated installer zip
+      try {
+        const res = await fetch(`/api/extension/installer?os=${targetOS}`);
+        if (res.ok) {
+          const blob = await res.blob();
+          if (blob.size > 2000) {
+            downloadBlob(blob, filename);
+            setDownloadSuccess(true);
+            setTimeout(() => setDownloadSuccess(false), 3500);
+            return;
+          }
+        }
+      } catch (serverErr) {
+        console.warn('Server installer zip download fallback to client packager:', serverErr);
+      }
+
+      // 2. Client-side fallback
+      let filesToPackage = extensionFiles;
+      let binaryToPackage = binaryFiles;
+      let tokenToInject = authToken;
+
+      if (Object.keys(filesToPackage).length === 0) {
+        try {
+          const res = await fetch('/api/extension/files');
+          const data = await res.json();
+          if (data.files) {
+            filesToPackage = data.files;
+            setExtensionFiles(data.files);
+          }
+          if (data.binaryFiles) {
+            binaryToPackage = data.binaryFiles;
+            setBinaryFiles(data.binaryFiles);
+          }
+          if (data.authToken) {
+            tokenToInject = data.authToken;
+            setAuthToken(data.authToken);
+          }
+        } catch (fetchErr) {
+          console.warn('Could not refresh extension files for client installer packaging:', fetchErr);
+        }
+      }
+
+      const currentOrigin = typeof window !== 'undefined' ? window.location.origin : undefined;
+      const blob = await packageInstallerZip(filesToPackage, binaryToPackage, targetOS, currentOrigin, tokenToInject, latestVer);
+      downloadBlob(blob, filename);
+      setDownloadSuccess(true);
+      setTimeout(() => setDownloadSuccess(false), 3500);
+    } catch (e) {
+      console.error('Error bundling installer zip:', e);
+    } finally {
+      setIsPackaging(false);
+    }
+  };
+
   const handleDownloadZip = async (targetBrowser: 'edge' | 'chrome' | 'firefox' = 'edge') => {
     setIsPackaging(true);
     try {
-      const currentOrigin = typeof window !== 'undefined' ? window.location.origin : undefined;
-      const blob = await packageExtensionZip(extensionFiles, binaryFiles, targetBrowser, currentOrigin, authToken);
+      const latestVer = versionInfo?.latestVersion || '1.1.0';
+      const versionTag = `v${latestVer}`;
       const filename = targetBrowser === 'edge'
-        ? 'sorotrack-edge.zip'
+        ? `sorotrack-${versionTag}-edge.zip`
         : targetBrowser === 'firefox'
-        ? 'sorotrack-firefox.zip'
-        : 'sorotrack-chrome.zip';
+        ? `sorotrack-${versionTag}-firefox.zip`
+        : `sorotrack-${versionTag}-chrome.zip`;
+
+      // 1. Prefer downloading the server pre-generated zip
+      try {
+        const res = await fetch(`/api/extension/download?browser=${targetBrowser}`);
+        if (res.ok) {
+          const blob = await res.blob();
+          if (blob.size > 2000) {
+            downloadBlob(blob, filename);
+            setDownloadSuccess(true);
+            setTimeout(() => setDownloadSuccess(false), 3500);
+            return;
+          }
+        }
+      } catch (serverErr) {
+        console.warn('Server zip download fallback to client packager:', serverErr);
+      }
+
+      // 2. Client-side fallback: ensure file contents are populated before packaging
+      let filesToPackage = extensionFiles;
+      let binaryToPackage = binaryFiles;
+      let tokenToInject = authToken;
+
+      if (Object.keys(filesToPackage).length === 0) {
+        try {
+          const res = await fetch('/api/extension/files');
+          const data = await res.json();
+          if (data.files) {
+            filesToPackage = data.files;
+            setExtensionFiles(data.files);
+          }
+          if (data.binaryFiles) {
+            binaryToPackage = data.binaryFiles;
+            setBinaryFiles(data.binaryFiles);
+          }
+          if (data.authToken) {
+            tokenToInject = data.authToken;
+            setAuthToken(data.authToken);
+          }
+        } catch (fetchErr) {
+          console.warn('Could not refresh extension files for client packaging:', fetchErr);
+        }
+      }
+
+      const currentOrigin = typeof window !== 'undefined' ? window.location.origin : undefined;
+      const blob = await packageExtensionZip(filesToPackage, binaryToPackage, targetBrowser, currentOrigin, tokenToInject);
       downloadBlob(blob, filename);
       setDownloadSuccess(true);
       setTimeout(() => setDownloadSuccess(false), 3500);
@@ -209,64 +386,574 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
             {/* 1. DOWNLOAD TAB */}
             {activeTab === 'download' && (
               <div className="space-y-6 animate-fade-in">
+
+                {/* Proactive Versioning & Upgrade Alert Card */}
+                {versionInfo && (
+                  <div className={`rounded-xl p-5 border shadow-2xs space-y-3 transition-all ${
+                    versionInfo.isOutdated 
+                      ? 'bg-gradient-to-br from-amber-50 to-orange-50/60 border-amber-300' 
+                      : 'bg-emerald-50/50 border-emerald-200'
+                  }`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`p-2 rounded-lg text-white shrink-0 shadow-2xs ${
+                          versionInfo.isOutdated ? 'bg-amber-500' : 'bg-emerald-600'
+                        }`}>
+                          {versionInfo.isOutdated ? (
+                            <ArrowUpCircle className="w-5 h-5 animate-pulse" />
+                          ) : (
+                            <CheckCircle2 className="w-5 h-5" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-sans font-bold text-slate-900">
+                              {versionInfo.isOutdated ? 'Extension Upgrade Available' : 'Extension Up to Date'}
+                            </h3>
+                            <span className={`text-[10px] font-mono px-2 py-0.5 rounded-md font-bold uppercase ${
+                              versionInfo.isOutdated 
+                                ? 'bg-amber-200 text-amber-900' 
+                                : 'bg-emerald-200 text-emerald-900'
+                            }`}>
+                              {versionInfo.isOutdated ? 'Update Recommended' : 'Latest Release'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 font-sans mt-0.5">
+                            {versionInfo.isOutdated 
+                              ? `A new version (v${versionInfo.latestVersion}) is ready on SoroTrack. Your browser is running v${versionInfo.installedVersion || '1.0.0'}.`
+                              : `Your browser is running SoroTrack Extension v${versionInfo.installedVersion || versionInfo.latestVersion}.`}
+                          </p>
+                        </div>
+                      </div>
+
+                      {onCheckVersionAgain && (
+                        <button
+                          type="button"
+                          onClick={() => onCheckVersionAgain()}
+                          className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-black/5 transition cursor-pointer"
+                          title="Re-verify browser extension version"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Version Comparison Bar */}
+                    <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
+                      <div className="bg-white/80 border border-slate-200 rounded-lg p-2 flex items-center justify-between">
+                        <span className="text-slate-500">Browser Installed:</span>
+                        <strong className={`font-bold ${versionInfo.isOutdated ? 'text-amber-700' : 'text-slate-800'}`}>
+                          v{versionInfo.installedVersion || '1.0.0'}
+                        </strong>
+                      </div>
+                      <div className="bg-white/80 border border-slate-200 rounded-lg p-2 flex items-center justify-between">
+                        <span className="text-slate-500">Latest on SoroTrack:</span>
+                        <strong className="text-emerald-700 font-bold">
+                          v{versionInfo.latestVersion}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {/* Fast Upgrade Action */}
+                    {versionInfo.isOutdated && (
+                      <div className="pt-1 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadZip('chrome')}
+                            disabled={isPackaging}
+                            className="flex-1 inline-flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-mono text-xs uppercase tracking-wider font-semibold shadow-2xs transition cursor-pointer"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Download v{versionInfo.latestVersion} (.zip)</span>
+                          </button>
+                        </div>
+
+                        <p className="text-[11px] text-slate-500 font-sans italic">
+                          Tip: Extract the zip file, open <code className="text-slate-700 font-mono">chrome://extensions</code> or <code className="text-slate-700 font-mono">edge://extensions</code>, and click the circular <strong>Reload</strong> icon on SoroTrack.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Version Simulation & Diagnostic Controls for verification */}
+                    {onCheckVersionAgain && (
+                      <div className="pt-2 border-t border-slate-200/70 flex items-center justify-between text-[10px] text-slate-500">
+                        <span>Version Diagnostics:</span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => onCheckVersionAgain('1.0.0')}
+                            className="px-2 py-0.5 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 font-mono cursor-pointer transition"
+                            title="Simulate browser having v1.0.0 installed"
+                          >
+                            Simulate v1.0.0 (Outdated)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onCheckVersionAgain('1.1.0')}
+                            className="px-2 py-0.5 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 font-mono cursor-pointer transition"
+                            title="Simulate browser having v1.1.0 installed"
+                          >
+                            Simulate v1.1.0 (Current)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onCheckVersionAgain(null)}
+                            className="px-2 py-0.5 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 font-mono cursor-pointer transition"
+                            title="Auto-detect from browser runtime"
+                          >
+                            Auto
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 
-                {/* Clean Download Card */}
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 shadow-2xs space-y-4">
+                {/* 1-Click OS Automated Installer (Recommended) */}
+                <div className="bg-gradient-to-br from-slate-900 via-slate-850 to-slate-950 text-white rounded-2xl p-5 shadow-md border border-slate-700/60 space-y-4">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-semibold">
-                        Ready to Install Archive
-                      </span>
-                      <h3 className="text-base font-sans font-bold text-slate-900 mt-0.5">
-                        SoroTrack Browser Extension
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-bold bg-emerald-950/80 px-2 py-0.5 rounded-md border border-emerald-500/30">
+                          <Zap className="w-3 h-3 text-emerald-400" />
+                          Recommended • 1-Click Setup
+                        </span>
+                      </div>
+                      <h3 className="text-base font-sans font-bold text-white mt-1.5 tracking-tight">
+                        Automated OS Installers
                       </h3>
-                      <p className="text-xs text-slate-600 font-sans mt-1 leading-relaxed">
-                        Scans your 𝕏 reading history (<code className="font-mono text-[11px] text-slate-800 bg-slate-200/70 px-1 py-0.5 rounded">/i/history</code> and <code className="font-mono text-[11px] text-slate-800 bg-slate-200/70 px-1 py-0.5 rounded">/i/history/likes</code>) locally and syncs to your personal archive.
+                      <p className="text-xs text-slate-300 font-sans mt-1 leading-relaxed">
+                        Download and run once. Automatically detects all available browsers on your Mac or PC (Microsoft Edge, Google Chrome, Brave, Arc, Firefox), installs SoroTrack to safe storage, and launches your browser ready to sync.
                       </p>
                     </div>
 
-                    <div className="p-2.5 rounded-lg bg-white border border-slate-200 text-slate-800 shrink-0 shadow-2xs">
-                      <FolderArchive className="w-6 h-6" />
+                    <div className="p-2.5 rounded-xl bg-white/10 border border-white/10 text-emerald-400 shrink-0 shadow-inner">
+                      <Sparkles className="w-6 h-6" />
                     </div>
                   </div>
 
-                  <div className="pt-2 space-y-2.5">
-                    {/* Microsoft Edge */}
+                  {/* Primary OS Installer Action Cards */}
+                  <div className="grid grid-cols-1 gap-3 pt-1">
+                    
+                    {/* Windows Installer */}
+                    <div className={`p-4 rounded-xl border transition-all ${
+                      userOS === 'windows' 
+                        ? 'bg-slate-800/90 border-emerald-500/50 ring-1 ring-emerald-500/30' 
+                        : 'bg-slate-800/50 border-slate-700/60 hover:border-slate-600'
+                    }`}>
+                      <div className="flex items-center justify-between mb-2.5">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 rounded-lg bg-sky-500/20 text-sky-400 border border-sky-400/30">
+                            <Monitor className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="font-sans font-bold text-sm text-white">Windows Installer</span>
+                            <span className="block text-[11px] text-slate-400">Windows 10, 11 (Edge, Chrome, Brave, Arc, Firefox)</span>
+                          </div>
+                        </div>
+
+                        {userOS === 'windows' && (
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            Your System
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        <button
+                          id="drawer-download-windows-installer-btn"
+                          onClick={() => handleDownloadInstaller('windows')}
+                          disabled={isPackaging}
+                          className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-mono uppercase tracking-wider font-bold shadow-sm transition disabled:opacity-50 cursor-pointer"
+                        >
+                          <Download className={`w-3.5 h-3.5 ${isPackaging ? 'animate-bounce' : ''}`} />
+                          <span>{isPackaging ? 'Packaging...' : 'Download for Windows (.zip)'}</span>
+                        </button>
+
+                        <a
+                          href="/api/extension/installer/script?os=windows"
+                          download="Install-SoroTrack.bat"
+                          className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg bg-slate-700/80 hover:bg-slate-700 text-slate-200 text-xs font-mono font-medium transition cursor-pointer border border-slate-600"
+                          title="Download standalone .bat runner script"
+                        >
+                          <Terminal className="w-3.5 h-3.5 text-sky-400" />
+                          <span>.bat script</span>
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* Mac (macOS) Installer */}
+                    <div className={`p-4 rounded-xl border transition-all ${
+                      userOS === 'mac' 
+                        ? 'bg-slate-800/90 border-emerald-500/50 ring-1 ring-emerald-500/30' 
+                        : 'bg-slate-800/50 border-slate-700/60 hover:border-slate-600'
+                    }`}>
+                      <div className="flex items-center justify-between mb-2.5">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-400/30">
+                            <Apple className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="font-sans font-bold text-sm text-white">macOS Installer</span>
+                            <span className="block text-[11px] text-slate-400">macOS 12+ (Edge, Chrome, Brave, Arc, Firefox)</span>
+                          </div>
+                        </div>
+
+                        {userOS === 'mac' && (
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            Your System
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        <button
+                          id="drawer-download-mac-installer-btn"
+                          onClick={() => handleDownloadInstaller('mac')}
+                          disabled={isPackaging}
+                          className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-mono uppercase tracking-wider font-bold shadow-sm transition disabled:opacity-50 cursor-pointer"
+                        >
+                          <Download className={`w-3.5 h-3.5 ${isPackaging ? 'animate-bounce' : ''}`} />
+                          <span>{isPackaging ? 'Packaging...' : 'Download for Mac (.zip)'}</span>
+                        </button>
+
+                        <a
+                          href="/api/extension/installer/script?os=mac"
+                          download="Install-SoroTrack.command"
+                          className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg bg-slate-700/80 hover:bg-slate-700 text-slate-200 text-xs font-mono font-medium transition cursor-pointer border border-slate-600"
+                          title="Download standalone .command runner script"
+                        >
+                          <Terminal className="w-3.5 h-3.5 text-purple-400" />
+                          <span>.command</span>
+                        </a>
+
+                        <a
+                          href="/api/extension/brew/sorotrack.rb"
+                          download="sorotrack.rb"
+                          className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-mono font-medium transition cursor-pointer border border-amber-400/40"
+                          title="Download Homebrew Formula (.rb)"
+                        >
+                          <span className="text-sm">🍺</span>
+                          <span>Formula</span>
+                        </a>
+                      </div>
+
+                      {/* Homebrew 1-Command Install Bar */}
+                      <div className="mt-3 pt-2.5 border-t border-slate-700/80">
+                        <div className="flex items-center justify-between text-[11px] font-mono text-slate-300 mb-1">
+                          <span className="flex items-center gap-1.5 text-amber-300">
+                            <span className="text-xs">🍺</span>
+                            <span className="font-semibold">Homebrew Install (Bypasses Apple Verification):</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+                              handleCopyCommand(`brew install --formula "${origin}/api/extension/brew/sorotrack.rb"`, 'brew-mac-direct');
+                            }}
+                            className="inline-flex items-center gap-1 text-amber-300 hover:text-amber-200 cursor-pointer"
+                          >
+                            {copiedKey === 'brew-mac-direct' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                            <span>{copiedKey === 'brew-mac-direct' ? 'Copied' : 'Copy'}</span>
+                          </button>
+                        </div>
+                        <code className="block bg-slate-900/90 text-amber-200 p-2 rounded border border-amber-400/25 break-all select-all text-[10px] font-mono">
+                          brew install --formula &quot;{typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/api/extension/brew/sorotrack.rb&quot;
+                        </code>
+                      </div>
+
+                      {/* Apple Verification & Gatekeeper Accordion */}
+                      <div className="mt-2.5">
+                        <button
+                          type="button"
+                          onClick={() => setShowBrewGuide(!showBrewGuide)}
+                          className="w-full flex items-center justify-between text-[11px] text-amber-300/90 hover:text-amber-200 bg-amber-950/40 hover:bg-amber-950/60 p-2 rounded-lg border border-amber-500/30 transition cursor-pointer font-sans"
+                        >
+                          <span className="flex items-center gap-1.5 font-semibold text-left">
+                            <ShieldAlert className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            <span>Apple could not verify the downloadable file? / Add to brew</span>
+                          </span>
+                          {showBrewGuide ? <ChevronUp className="w-3.5 h-3.5 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0" />}
+                        </button>
+
+                        {showBrewGuide && (
+                          <div className="mt-2 p-3 rounded-xl bg-slate-900/90 border border-amber-500/30 space-y-3 text-[11px] font-sans text-slate-300 animate-fade-in">
+                            <div className="bg-amber-950/30 border border-amber-500/30 rounded-lg p-2.5 text-amber-200/90 leading-relaxed text-[11px]">
+                              <strong className="text-amber-300 block mb-0.5">Why does macOS show this?</strong>
+                              Safari and Chrome automatically attach the <code className="font-mono bg-black/40 px-1 py-0.2 rounded text-amber-300">com.apple.quarantine</code> attribute to downloaded files. Because this is an open-source project without Apple&apos;s $99/year certificate notarization, Gatekeeper blocks double-clicking by default.
+                            </div>
+
+                            {/* Option 1: Homebrew */}
+                            <div className="p-2.5 rounded-lg bg-black/40 border border-slate-700/80 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-amber-300 font-sans flex items-center gap-1.5">
+                                  <span>🍺</span>
+                                  <span>Option 1: Install with Homebrew (Recommended)</span>
+                                </span>
+                                <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-500/30 font-semibold">
+                                  Gatekeeper Exempt
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-400 leading-normal">
+                                Homebrew packages are trusted locally on macOS and never trigger Gatekeeper warnings.
+                              </p>
+                              <div className="flex items-center gap-1.5">
+                                <code className="flex-1 bg-slate-950 p-1.5 rounded border border-slate-800 text-[10px] font-mono text-amber-200 truncate select-all">
+                                  brew install --formula &quot;{typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/api/extension/brew/sorotrack.rb&quot;
+                                </code>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+                                    handleCopyCommand(`brew install --formula "${origin}/api/extension/brew/sorotrack.rb"`, 'brew-opt1');
+                                  }}
+                                  className="px-2 py-1.5 rounded bg-amber-600 hover:bg-amber-500 text-white font-mono text-[10px] font-semibold transition cursor-pointer shrink-0"
+                                >
+                                  {copiedKey === 'brew-opt1' ? 'Copied' : 'Copy'}
+                                </button>
+                              </div>
+                              <p className="text-[10px] text-slate-400">
+                                Once installed, you can run <code className="text-amber-300 font-mono">sorotrack install</code> or <code className="text-amber-300 font-mono">sorotrack launch</code> anywhere in Terminal!
+                              </p>
+                            </div>
+
+                            {/* Option 2: Add to your own GitHub Homebrew Tap */}
+                            <div className="p-2.5 rounded-lg bg-black/40 border border-slate-700/80 space-y-2">
+                              <span className="font-bold text-purple-300 font-sans flex items-center gap-1.5">
+                                <Code className="w-3.5 h-3.5 text-purple-400" />
+                                <span>Option 2: Add to your GitHub Homebrew Tap (brew tap)</span>
+                              </span>
+                              <p className="text-[11px] text-slate-400 leading-normal">
+                                Want to host it on your own GitHub account as a custom brew tap?
+                              </p>
+
+                              <div className="space-y-1.5 text-[11px] pl-1 font-mono text-slate-300">
+                                <p><span className="text-purple-400 font-bold">1.</span> Create GitHub repo: <code className="text-purple-300 bg-slate-950 px-1 py-0.5 rounded">homebrew-sorotrack</code></p>
+                                <p><span className="text-purple-400 font-bold">2.</span> Add file inside repo: <code className="text-purple-300 bg-slate-950 px-1 py-0.5 rounded">Formula/sorotrack.rb</code></p>
+                                <p><span className="text-purple-400 font-bold">3.</span> Paste our generated Homebrew Formula:</p>
+                              </div>
+
+                              <div className="flex items-center gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={handleCopyFormula}
+                                  className="inline-flex items-center gap-1.5 py-1.5 px-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-mono text-[11px] font-semibold transition cursor-pointer"
+                                >
+                                  {formulaCopied ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                                  <span>{formulaCopied ? 'Formula Copied!' : 'Copy Formula (Ruby)'}</span>
+                                </button>
+
+                                <a
+                                  href="/api/extension/brew/sorotrack.rb"
+                                  download="sorotrack.rb"
+                                  className="inline-flex items-center gap-1.5 py-1.5 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-200 font-mono text-[11px] transition cursor-pointer border border-slate-700"
+                                >
+                                  <Download className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>Download sorotrack.rb</span>
+                                </a>
+                              </div>
+
+                              <div className="pt-1 space-y-1">
+                                <label className="text-[10px] text-slate-400 block font-sans">
+                                  Your GitHub username (for custom tap preview):
+                                </label>
+                                <input
+                                  type="text"
+                                  value={tapUsername}
+                                  onChange={(e) => setTapUsername(e.target.value.trim() || 'your-username')}
+                                  placeholder="your-github-username"
+                                  className="w-full bg-slate-950 text-purple-200 border border-slate-700 px-2 py-1 rounded text-[11px] font-mono focus:outline-none focus:border-purple-400"
+                                />
+                                <div className="flex items-center gap-1.5 pt-1">
+                                  <code className="flex-1 bg-slate-950 p-1.5 rounded border border-slate-800 text-[10px] font-mono text-purple-200 truncate select-all">
+                                    brew tap {tapUsername}/sorotrack &amp;&amp; brew install sorotrack
+                                  </code>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyCommand(`brew tap ${tapUsername}/sorotrack && brew install sorotrack`, 'brew-custom-tap')}
+                                    className="px-2 py-1.5 rounded bg-purple-700 hover:bg-purple-600 text-white font-mono text-[10px] font-semibold transition cursor-pointer shrink-0"
+                                  >
+                                    {copiedKey === 'brew-custom-tap' ? 'Copied' : 'Copy'}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Option 3: Terminal Quarantine Removal */}
+                            <div className="p-2.5 rounded-lg bg-black/40 border border-slate-700/80 space-y-1.5">
+                              <span className="font-bold text-sky-300 font-sans flex items-center gap-1.5">
+                                <Terminal className="w-3.5 h-3.5 text-sky-400" />
+                                <span>Option 3: Clear Quarantine Attribute via Terminal</span>
+                              </span>
+                              <p className="text-[11px] text-slate-400">
+                                Strip the browser quarantine flag from the downloaded folder:
+                              </p>
+                              <div className="flex items-center gap-1.5">
+                                <code className="flex-1 bg-slate-950 p-1.5 rounded border border-slate-800 text-[10px] font-mono text-sky-200 truncate select-all">
+                                  xattr -cr ~/Downloads/sorotrack-installer-mac*
+                                </code>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyCommand('xattr -cr ~/Downloads/sorotrack-installer-mac*', 'xattr-cmd')}
+                                  className="px-2 py-1.5 rounded bg-sky-700 hover:bg-sky-600 text-white font-mono text-[10px] font-semibold transition cursor-pointer shrink-0"
+                                >
+                                  {copiedKey === 'xattr-cmd' ? 'Copied' : 'Copy'}
+                                </button>
+                              </div>
+                              <p className="text-[10px] text-slate-400">
+                                Once run, double-clicking <code className="text-slate-300 font-mono">Install-SoroTrack.command</code> will open without errors.
+                              </p>
+                            </div>
+
+                            {/* Option 4: Right-Click Open */}
+                            <div className="p-2.5 rounded-lg bg-black/40 border border-slate-700/80 space-y-1 text-slate-400 text-[11px]">
+                              <span className="font-bold text-slate-200 font-sans block">
+                                Option 4: Right-Click &ldquo;Open&rdquo; (No Terminal required)
+                              </span>
+                              <p>
+                                1. In Finder, <strong>Right-Click</strong> (or Control-Click) <code className="text-slate-200 font-mono">Install-SoroTrack.command</code>.<br />
+                                2. Click <strong>Open</strong> from the context menu.<br />
+                                3. In the security popup, click <strong>Open</strong>.<br />
+                                macOS saves a permanent exception for this file.
+                              </p>
+                            </div>
+
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 1-Line Terminal Quick-Install Accordion */}
+                  <div className="pt-1">
                     <button
-                      id="drawer-download-edge-btn"
-                      onClick={() => handleDownloadZip('edge')}
-                      disabled={isPackaging}
-                      className="w-full inline-flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-mono uppercase tracking-wider font-semibold shadow-2xs transition disabled:opacity-50 cursor-pointer"
+                      type="button"
+                      onClick={() => setShowTerminalCommands(!showTerminalCommands)}
+                      className="w-full flex items-center justify-between text-[11px] text-slate-400 hover:text-slate-200 py-1 font-mono transition cursor-pointer"
                     >
-                      <Download className={`w-4 h-4 ${isPackaging ? 'animate-bounce' : ''}`} />
-                      <span>{isPackaging ? 'Packaging...' : 'Download for Microsoft Edge (.zip)'}</span>
-                      <span className="text-base ml-1">🌊</span>
+                      <span className="flex items-center gap-1.5">
+                        <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Or install via 1-line Terminal / PowerShell command</span>
+                      </span>
+                      {showTerminalCommands ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                     </button>
 
-                    {/* Google Chrome / Brave */}
-                    <button
-                      id="drawer-download-chrome-btn"
-                      onClick={() => handleDownloadZip('chrome')}
-                      disabled={isPackaging}
-                      className="w-full inline-flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-mono uppercase tracking-wider font-semibold transition disabled:opacity-50 cursor-pointer shadow-2xs"
-                    >
-                      <Download className="w-4 h-4 text-slate-600" />
-                      <span>Download for Chrome / Brave (.zip)</span>
-                      <span className="text-base ml-1">🌐</span>
-                    </button>
+                    {showTerminalCommands && (
+                      <div className="mt-2.5 p-3 rounded-xl bg-black/60 border border-slate-700 space-y-3 font-mono text-[11px] animate-fade-in">
+                        {/* Mac curl */}
+                        <div>
+                          <div className="flex items-center justify-between text-slate-400 text-[10px] mb-1">
+                            <span>macOS Terminal:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+                                handleCopyCommand(`curl -sSL "${origin}/api/extension/installer/script?os=mac" | bash`, 'mac-cmd');
+                              }}
+                              className="inline-flex items-center gap-1 text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                            >
+                              {copiedKey === 'mac-cmd' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                              <span>{copiedKey === 'mac-cmd' ? 'Copied' : 'Copy'}</span>
+                            </button>
+                          </div>
+                          <code className="block bg-slate-900 text-emerald-300 p-2 rounded border border-slate-800 break-all select-all text-[10px]">
+                            curl -sSL &quot;{typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/api/extension/installer/script?os=mac&quot; | bash
+                          </code>
+                        </div>
 
-                    {/* Mozilla Firefox */}
+                        {/* Windows PowerShell */}
+                        <div>
+                          <div className="flex items-center justify-between text-slate-400 text-[10px] mb-1">
+                            <span>Windows PowerShell:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+                                handleCopyCommand(`irm "${origin}/api/extension/installer/script?os=windows&format=ps1" | iex`, 'win-cmd');
+                              }}
+                              className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300 cursor-pointer"
+                            >
+                              {copiedKey === 'win-cmd' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                              <span>{copiedKey === 'win-cmd' ? 'Copied' : 'Copy'}</span>
+                            </button>
+                          </div>
+                          <code className="block bg-slate-900 text-sky-300 p-2 rounded border border-slate-800 break-all select-all text-[10px]">
+                            irm &quot;{typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/api/extension/installer/script?os=windows&format=ps1&quot; | iex
+                          </code>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Collapsible Manual / Developer Unpacked ZIPs */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-sans font-bold text-slate-900">
+                        Manual Unpacked Extension Archives
+                      </h4>
+                      <p className="text-[11px] text-slate-500 font-sans">
+                        For developers or manual &ldquo;Load unpacked&rdquo; installation in specific browsers.
+                      </p>
+                    </div>
+
                     <button
-                      id="drawer-download-firefox-btn"
-                      onClick={() => handleDownloadZip('firefox')}
-                      disabled={isPackaging}
-                      className="w-full inline-flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-mono uppercase tracking-wider font-semibold shadow-2xs transition disabled:opacity-50 cursor-pointer"
+                      type="button"
+                      onClick={() => setShowManualZips(!showManualZips)}
+                      className="p-1 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-200 transition cursor-pointer"
+                      title={showManualZips ? 'Hide manual zips' : 'Show manual zips'}
                     >
-                      <Download className="w-4 h-4 text-slate-600" />
-                      <span>Download for Firefox (.zip)</span>
-                      <span className="text-base ml-1">🦊</span>
+                      {showManualZips ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                     </button>
                   </div>
+
+                  {showManualZips && (
+                    <div className="pt-2 space-y-2 animate-fade-in border-t border-slate-200/80">
+                      {/* Microsoft Edge */}
+                      <button
+                        id="drawer-download-edge-btn"
+                        onClick={() => handleDownloadZip('edge')}
+                        disabled={isPackaging}
+                        className="w-full inline-flex items-center justify-between py-2 px-3 rounded-lg bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 text-xs font-mono transition cursor-pointer shadow-2xs"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="text-base">🌊</span>
+                          <span className="font-semibold">Microsoft Edge (.zip)</span>
+                        </span>
+                        <Download className="w-3.5 h-3.5 text-slate-500" />
+                      </button>
+
+                      {/* Google Chrome / Brave */}
+                      <button
+                        id="drawer-download-chrome-btn"
+                        onClick={() => handleDownloadZip('chrome')}
+                        disabled={isPackaging}
+                        className="w-full inline-flex items-center justify-between py-2 px-3 rounded-lg bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 text-xs font-mono transition cursor-pointer shadow-2xs"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="text-base">🌐</span>
+                          <span className="font-semibold">Chrome / Brave (.zip)</span>
+                        </span>
+                        <Download className="w-3.5 h-3.5 text-slate-500" />
+                      </button>
+
+                      {/* Mozilla Firefox */}
+                      <button
+                        id="drawer-download-firefox-btn"
+                        onClick={() => handleDownloadZip('firefox')}
+                        disabled={isPackaging}
+                        className="w-full inline-flex items-center justify-between py-2 px-3 rounded-lg bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 text-xs font-mono transition cursor-pointer shadow-2xs"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="text-base">🦊</span>
+                          <span className="font-semibold">Mozilla Firefox (.zip)</span>
+                        </span>
+                        <Download className="w-3.5 h-3.5 text-slate-500" />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* JSON Archive Import & Export Card */}
@@ -375,47 +1062,357 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
             {/* 2. INSTALLATION GUIDE TAB */}
             {activeTab === 'setup' && (
               <div className="space-y-6 animate-fade-in">
-                {/* Browser Guide Selector */}
-                <div className="flex gap-2">
+                
+                {/* Mode Selector: 1-Click Installer vs Manual */}
+                <div className="p-1 rounded-xl bg-slate-100 border border-slate-200 flex items-center gap-1">
                   <button
-                    id="setup-browser-edge"
-                    onClick={() => setBrowserGuide('edge')}
-                    className={`flex-1 p-2.5 rounded-xl border flex items-center justify-center gap-1.5 font-sans text-xs font-semibold transition cursor-pointer ${
-                      browserGuide === 'edge'
-                        ? 'bg-slate-200/90 border-slate-300 text-slate-900 shadow-2xs'
-                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
+                    type="button"
+                    onClick={() => setSetupMode('installer')}
+                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-sans font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                      setupMode === 'installer'
+                        ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/80'
+                        : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    <span className="text-base">🌊</span>
-                    <span>Microsoft Edge</span>
+                    <Zap className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>1-Click Installer Setup (Easiest)</span>
                   </button>
 
                   <button
-                    id="setup-browser-chrome"
-                    onClick={() => setBrowserGuide('chrome')}
-                    className={`flex-1 p-2.5 rounded-xl border flex items-center justify-center gap-1.5 font-sans text-xs font-semibold transition cursor-pointer ${
-                      browserGuide === 'chrome'
-                        ? 'bg-slate-200/90 border-slate-300 text-slate-900 shadow-2xs'
-                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
+                    type="button"
+                    onClick={() => setSetupMode('manual')}
+                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-sans font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                      setupMode === 'manual'
+                        ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/80'
+                        : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    <span className="text-base">🌐</span>
-                    <span>Chrome / Brave</span>
-                  </button>
-
-                  <button
-                    id="setup-browser-firefox"
-                    onClick={() => setBrowserGuide('firefox')}
-                    className={`flex-1 p-2.5 rounded-xl border flex items-center justify-center gap-1.5 font-sans text-xs font-semibold transition cursor-pointer ${
-                      browserGuide === 'firefox'
-                        ? 'bg-slate-200/90 border-slate-300 text-slate-900 shadow-2xs'
-                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    <span className="text-base">🦊</span>
-                    <span>Firefox</span>
+                    <HelpCircle className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Manual Browser Guide</span>
                   </button>
                 </div>
+
+                {/* 1-Click Installer Walkthrough */}
+                {setupMode === 'installer' && (
+                  <div className="space-y-4">
+                    {/* OS Switcher for Guide */}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setInstallerOS('windows')}
+                        className={`flex-1 p-2.5 rounded-xl border flex items-center justify-center gap-2 font-sans text-xs font-semibold transition cursor-pointer ${
+                          installerOS === 'windows'
+                            ? 'bg-slate-200/90 border-slate-300 text-slate-900 shadow-2xs'
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <Monitor className="w-4 h-4 text-sky-600" />
+                        <span>Windows Guide</span>
+                        {userOS === 'windows' && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-bold">
+                            You
+                          </span>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setInstallerOS('mac')}
+                        className={`flex-1 p-2.5 rounded-xl border flex items-center justify-center gap-2 font-sans text-xs font-semibold transition cursor-pointer ${
+                          installerOS === 'mac'
+                            ? 'bg-slate-200/90 border-slate-300 text-slate-900 shadow-2xs'
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <Apple className="w-4 h-4 text-purple-600" />
+                        <span>macOS Guide</span>
+                        {userOS === 'mac' && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-bold">
+                            You
+                          </span>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Windows Automated Installer Steps */}
+                    {installerOS === 'windows' && (
+                      <div className="space-y-4 bg-slate-50 border border-slate-200 rounded-xl p-5 shadow-2xs">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-sans font-bold text-slate-900">
+                            Windows 1-Click Automated Installation:
+                          </h3>
+                          <span className="text-[11px] font-mono bg-sky-100 text-sky-800 px-2 py-0.5 rounded font-semibold">
+                            Auto Browser Detection
+                          </span>
+                        </div>
+
+                        <ol className="space-y-3.5 pl-1">
+                          <li className="flex items-start gap-3">
+                            <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">1</span>
+                            <div>
+                              <p className="font-semibold text-slate-900 font-sans">Download the Windows Installer:</p>
+                              <p className="text-slate-600 mt-0.5 font-sans">
+                                Click <strong className="text-slate-800">&ldquo;Download for Windows (.zip)&rdquo;</strong> above to get the complete setup package.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadInstaller('windows')}
+                                disabled={isPackaging}
+                                className="mt-2 inline-flex items-center gap-1.5 py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs uppercase font-semibold transition cursor-pointer shadow-2xs"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Download Windows Package (.zip)</span>
+                              </button>
+                            </div>
+                          </li>
+
+                          <li className="flex items-start gap-3">
+                            <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">2</span>
+                            <div>
+                              <p className="font-semibold text-slate-900 font-sans">Extract & Double-click Install-SoroTrack.bat:</p>
+                              <p className="text-slate-600 mt-0.5 font-sans">
+                                Extract the downloaded zip file into any folder and double-click <code className="text-slate-800 font-mono text-[11px] bg-white px-1.5 py-0.5 rounded border border-slate-200">Install-SoroTrack.bat</code>.
+                              </p>
+                            </div>
+                          </li>
+
+                          <li className="flex items-start gap-3">
+                            <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">3</span>
+                            <div>
+                              <p className="font-semibold text-slate-900 font-sans">The Installer Does Everything Automatically:</p>
+                              <div className="mt-1 text-slate-600 font-sans space-y-1 text-xs">
+                                <p className="flex items-center gap-1.5">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span>Scans for Microsoft Edge, Google Chrome, Brave, Arc, Firefox, Vivaldi, Opera.</span>
+                                </p>
+                                <p className="flex items-center gap-1.5">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span>Copies SoroTrack to permanent LocalAppData storage (safe from cleanup).</span>
+                                </p>
+                                <p className="flex items-center gap-1.5">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span>Copies the folder path to your Windows clipboard.</span>
+                                </p>
+                                <p className="flex items-center gap-1.5">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span>Creates desktop shortcuts and launches your browser with SoroTrack pre-loaded!</span>
+                                </p>
+                              </div>
+                            </div>
+                          </li>
+
+                          <li className="flex items-start gap-3">
+                            <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">4</span>
+                            <div>
+                              <p className="font-semibold text-slate-900 font-sans">If browser asks to Load Unpacked:</p>
+                              <p className="text-slate-600 mt-0.5 font-sans">
+                                Click <strong className="text-slate-900">&ldquo;Load unpacked&rdquo;</strong> and simply press <kbd className="px-1.5 py-0.5 rounded bg-slate-200 font-mono text-[11px] text-slate-800 border border-slate-300">Ctrl</kbd> + <kbd className="px-1.5 py-0.5 rounded bg-slate-200 font-mono text-[11px] text-slate-800 border border-slate-300">V</kbd> (the path is already on your clipboard!), then click Select.
+                              </p>
+                            </div>
+                          </li>
+
+                          <li className="flex items-start gap-3">
+                            <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">5</span>
+                            <div>
+                              <p className="font-semibold text-slate-900 font-sans">Start Syncing:</p>
+                              <p className="text-slate-600 mt-0.5 font-sans">
+                                Visit <a href="https://x.com/i/history" target="_blank" rel="noopener noreferrer" className="text-slate-900 underline inline-flex items-center gap-0.5 font-mono text-[11px]">https://x.com/i/history <ExternalLink className="w-3 h-3" /></a> and the SoroTrack HUD appears automatically.
+                              </p>
+                            </div>
+                          </li>
+                        </ol>
+                      </div>
+                    )}
+
+                    {/* macOS Automated Installer Steps */}
+                    {installerOS === 'mac' && (
+                      <div className="space-y-4 bg-slate-50 border border-slate-200 rounded-xl p-5 shadow-2xs">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-sans font-bold text-slate-900">
+                            macOS 1-Click Automated Installation:
+                          </h3>
+                          <span className="text-[11px] font-mono bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-semibold">
+                            Auto Applications Scanner
+                          </span>
+                        </div>
+
+                        <ol className="space-y-3.5 pl-1">
+                          <li className="flex items-start gap-3">
+                            <span className="w-5 h-5 rounded-full bg-purple-600 text-white flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">1</span>
+                            <div>
+                              <p className="font-semibold text-slate-900 font-sans">Download the macOS Package:</p>
+                              <p className="text-slate-600 mt-0.5 font-sans">
+                                Click <strong className="text-slate-800">&ldquo;Download for Mac (.zip)&rdquo;</strong> above to get the bundle.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadInstaller('mac')}
+                                disabled={isPackaging}
+                                className="mt-2 inline-flex items-center gap-1.5 py-1.5 px-3 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-mono text-xs uppercase font-semibold transition cursor-pointer shadow-2xs"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Download Mac Package (.zip)</span>
+                              </button>
+                            </div>
+                          </li>
+
+                          <li className="flex items-start gap-3">
+                            <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">2</span>
+                            <div className="space-y-2">
+                              <div>
+                                <p className="font-semibold text-slate-900 font-sans">Run the Installer (or Install via Homebrew):</p>
+                                <p className="text-slate-600 mt-0.5 font-sans">
+                                  Double-click <code className="text-slate-800 font-mono text-[11px] bg-white px-1.5 py-0.5 rounded border border-slate-200">Install-SoroTrack.command</code> in Finder.
+                                </p>
+                              </div>
+
+                              {/* Apple Gatekeeper Warning Box & Instant Solutions */}
+                              <div className="p-3 rounded-lg bg-amber-50/80 border border-amber-300 text-slate-700 space-y-2 text-[11px] font-sans">
+                                <div className="flex items-start gap-1.5 font-bold text-amber-900">
+                                  <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                  <span>Got: &ldquo;Apple could not verify the downloadable file&rdquo;?</span>
+                                </div>
+                                <p className="text-slate-600 leading-relaxed text-[11px]">
+                                  This is standard macOS Gatekeeper behavior for all downloaded internet files without an Apple corporate certificate. Pick any of these quick fixes:
+                                </p>
+
+                                <div className="space-y-2 pt-1 font-mono text-[10px]">
+                                  {/* Fix A: Homebrew */}
+                                  <div className="p-2 rounded bg-white border border-amber-200 space-y-1">
+                                    <div className="flex items-center justify-between text-amber-900 font-bold font-sans">
+                                      <span className="flex items-center gap-1">
+                                        <span>🍺</span>
+                                        <span>Method A: Homebrew (Bypasses verification completely)</span>
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+                                          handleCopyCommand(`brew install --formula "${origin}/api/extension/brew/sorotrack.rb"`, 'step-brew');
+                                        }}
+                                        className="text-amber-700 hover:text-amber-900 font-mono cursor-pointer"
+                                      >
+                                        {copiedKey === 'step-brew' ? 'Copied' : 'Copy Command'}
+                                      </button>
+                                    </div>
+                                    <code className="block bg-slate-100 p-1 rounded text-slate-800 break-all select-all">
+                                      brew install --formula &quot;{typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/api/extension/brew/sorotrack.rb&quot;
+                                    </code>
+                                  </div>
+
+                                  {/* Fix B: Right Click Open */}
+                                  <div className="p-2 rounded bg-white border border-amber-200 text-slate-700 font-sans leading-normal">
+                                    <strong className="text-slate-900 block font-semibold">Method B: Right-Click &ldquo;Open&rdquo; (Fast GUI fix)</strong>
+                                    Right-click (or Control-click) <code className="font-mono text-slate-800 text-[10px] bg-slate-100 px-1 rounded">Install-SoroTrack.command</code> in Finder &rarr; click <strong>Open</strong> &rarr; click <strong>Open</strong> on the prompt.
+                                  </div>
+
+                                  {/* Fix C: Terminal unquarantine */}
+                                  <div className="p-2 rounded bg-white border border-amber-200 space-y-1">
+                                    <div className="flex items-center justify-between text-slate-800 font-bold font-sans">
+                                      <span>Method C: Terminal Unquarantine (1 Command)</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCopyCommand('xattr -cr ~/Downloads/sorotrack-installer-mac*', 'step-xattr')}
+                                        className="text-slate-600 hover:text-slate-900 font-mono cursor-pointer"
+                                      >
+                                        {copiedKey === 'step-xattr' ? 'Copied' : 'Copy Command'}
+                                      </button>
+                                    </div>
+                                    <code className="block bg-slate-100 p-1 rounded text-slate-800 break-all select-all">
+                                      xattr -cr ~/Downloads/sorotrack-installer-mac*
+                                    </code>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </li>
+
+                          <li className="flex items-start gap-3">
+                            <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">3</span>
+                            <div>
+                              <p className="font-semibold text-slate-900 font-sans">Automated Setup Across All Browsers:</p>
+                              <div className="mt-1 text-slate-600 font-sans space-y-1 text-xs">
+                                <p className="flex items-center gap-1.5">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                                  <span>Scans /Applications for Edge, Chrome, Brave, Arc, Firefox, Vivaldi, Opera.</span>
+                                </p>
+                                <p className="flex items-center gap-1.5">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                                  <span>Copies files into ~/Library/Application Support/SoroTrack/extension.</span>
+                                </p>
+                                <p className="flex items-center gap-1.5">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                                  <span>Copies folder path to macOS clipboard (Cmd+V ready).</span>
+                                </p>
+                                <p className="flex items-center gap-1.5">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                                  <span>Launches your browser and displays a macOS notification!</span>
+                                </p>
+                              </div>
+                            </div>
+                          </li>
+
+                          <li className="flex items-start gap-3">
+                            <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">4</span>
+                            <div>
+                              <p className="font-semibold text-slate-900 font-sans">Start Syncing:</p>
+                              <p className="text-slate-600 mt-0.5 font-sans">
+                                Open <a href="https://x.com/i/history" target="_blank" rel="noopener noreferrer" className="text-slate-900 underline inline-flex items-center gap-0.5 font-mono text-[11px]">https://x.com/i/history <ExternalLink className="w-3 h-3" /></a> to stream reading history into your database.
+                              </p>
+                            </div>
+                          </li>
+                        </ol>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Manual Browser Step-by-Step Guides */}
+                {setupMode === 'manual' && (
+                  <div className="space-y-4">
+                    {/* Browser Guide Selector */}
+                    <div className="flex gap-2">
+                      <button
+                        id="setup-browser-edge"
+                        onClick={() => setBrowserGuide('edge')}
+                        className={`flex-1 p-2.5 rounded-xl border flex items-center justify-center gap-1.5 font-sans text-xs font-semibold transition cursor-pointer ${
+                          browserGuide === 'edge'
+                            ? 'bg-slate-200/90 border-slate-300 text-slate-900 shadow-2xs'
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <span className="text-base">🌊</span>
+                        <span>Microsoft Edge</span>
+                      </button>
+
+                      <button
+                        id="setup-browser-chrome"
+                        onClick={() => setBrowserGuide('chrome')}
+                        className={`flex-1 p-2.5 rounded-xl border flex items-center justify-center gap-1.5 font-sans text-xs font-semibold transition cursor-pointer ${
+                          browserGuide === 'chrome'
+                            ? 'bg-slate-200/90 border-slate-300 text-slate-900 shadow-2xs'
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <span className="text-base">🌐</span>
+                        <span>Chrome / Brave</span>
+                      </button>
+
+                      <button
+                        id="setup-browser-firefox"
+                        onClick={() => setBrowserGuide('firefox')}
+                        className={`flex-1 p-2.5 rounded-xl border flex items-center justify-center gap-1.5 font-sans text-xs font-semibold transition cursor-pointer ${
+                          browserGuide === 'firefox'
+                            ? 'bg-slate-200/90 border-slate-300 text-slate-900 shadow-2xs'
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <span className="text-base">🦊</span>
+                        <span>Firefox</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Microsoft Edge Guide */}
                 {browserGuide === 'edge' && (
@@ -435,7 +1432,7 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
                         <div>
                           <p className="font-semibold text-slate-900 font-sans">Extract the downloaded ZIP:</p>
                           <p className="text-slate-600 mt-0.5 font-sans">
-                            Extract <code className="text-slate-800 font-mono text-[11px] bg-white px-1 py-0.5 rounded border border-slate-200">sorotrack-edge.zip</code> into a local directory on your disk.
+                            Extract <code className="text-slate-800 font-mono text-[11px] bg-white px-1 py-0.5 rounded border border-slate-200">sorotrack-v{versionInfo?.latestVersion || '1.1.0'}-edge.zip</code> into a local directory on your disk.
                           </p>
                         </div>
                       </li>
@@ -502,7 +1499,7 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
                         <div>
                           <p className="font-semibold text-slate-900 font-sans">Extract the downloaded ZIP:</p>
                           <p className="text-slate-600 mt-0.5 font-sans">
-                            Extract <code className="text-slate-800 font-mono text-[11px] bg-white px-1 py-0.5 rounded border border-slate-200">sorotrack-firefox.zip</code> into a local directory on your disk.
+                            Extract <code className="text-slate-800 font-mono text-[11px] bg-white px-1 py-0.5 rounded border border-slate-200">sorotrack-v{versionInfo?.latestVersion || '1.1.0'}-firefox.zip</code> into a local directory on your disk.
                           </p>
                         </div>
                       </li>
@@ -556,7 +1553,7 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
                         <div>
                           <p className="font-semibold text-slate-900 font-sans">Unzip the extension package:</p>
                           <p className="text-slate-600 mt-0.5 font-sans">
-                            Extract <code className="text-slate-800 font-mono text-[11px] bg-white px-1 py-0.5 rounded border border-slate-200">sorotrack-chrome.zip</code> to a folder.
+                            Extract <code className="text-slate-800 font-mono text-[11px] bg-white px-1 py-0.5 rounded border border-slate-200">sorotrack-v{versionInfo?.latestVersion || '1.1.0'}-chrome.zip</code> to a folder.
                           </p>
                         </div>
                       </li>

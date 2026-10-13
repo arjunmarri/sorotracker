@@ -104,11 +104,22 @@ export async function loginWithGoogle(): Promise<UserProfile> {
       photoURL: fbUser.photoURL || undefined
     });
   } catch (error: any) {
-    console.error('Google Sign-In Error:', error);
+    // Normal user cancellation: user closed the Google Auth popup before signing in
+    if (error?.code === 'auth/popup-closed-by-user') {
+      console.info('[Auth] Google sign-in window was closed by the user.');
+      throw new Error('Sign-in cancelled. You can sign in again or use email.');
+    }
+    // Browser popup was superseded or request cancelled
+    if (error?.code === 'auth/cancelled-popup-request') {
+      console.info('[Auth] Google sign-in popup request was cancelled.');
+      throw new Error('Sign-in was cancelled. Please try again.');
+    }
     // Handle iframe sandbox / popup blocker
-    if (error.code === 'auth/popup-blocked' || error.code === 'auth/cancelled-popup-request') {
+    if (error?.code === 'auth/popup-blocked') {
+      console.warn('[Auth] Google sign-in popup was blocked by browser.');
       throw new Error('Google Sign-In popup was blocked. Please allow popups or use email sign-in / demo admin access.');
     }
+    console.warn('[Auth] Google Sign-In notice:', error?.message || error);
     throw error;
   }
 }

@@ -59,6 +59,18 @@
           <span>Reload</span>
         </button>
 
+        <!-- User Account Pill & Status -->
+        <div id="viewer-user-container" class="stat-pill" style="border-color: #3b82f6; background: rgba(59, 130, 246, 0.15); display: none;">
+          <span style="font-weight: 700; color: #93c5fd;" id="viewer-user-label">👤 User</span>
+          <button id="viewer-btn-logout" class="btn" style="padding: 2px 6px; font-size: 10px; margin-left: 6px; border-color: #475569; background: #1e293b; color: #cbd5e1;" title="Sign out of account">
+            Sign Out
+          </button>
+        </div>
+        <button id="viewer-btn-login-open" class="btn" style="border-color: #3b82f6; background: #1d4ed8; color: #ffffff; font-weight: 700;" title="Sign in to your SoroTrack account to access personal bookmarks">
+          <span>👤</span>
+          <span>Sign In</span>
+        </button>
+
         <!-- Theme Toggle -->
         <button id="btn-theme-toggle" class="btn btn-icon-only" title="Toggle Light / Dark mode">
           <span id="theme-icon">🌙</span>
@@ -193,6 +205,35 @@
 
     <!-- Compact List View (hidden by default) -->
     <div id="compact-container" class="compact-list" style="display: none;"></div>
+
+    <!-- Account Required / Locked State View -->
+    <div id="viewer-account-locked-view" class="empty-state" style="display: none; max-width: 480px; margin: 40px auto; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 28px;">
+      <div class="empty-icon">🔒</div>
+      <h3 class="empty-title" style="font-size: 18px; margin-bottom: 6px;">Account Required</h3>
+      <p class="empty-desc" style="margin-bottom: 20px;">
+        Only users who connect their account can see their own bookmarks and reading history. Please sign in to view your private archive.
+      </p>
+
+      <div style="text-align: left; margin-bottom: 16px;">
+        <label style="display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Email Address</label>
+        <input type="email" id="viewer-login-email" placeholder="name@example.com" class="search-input" style="width: 100%; box-sizing: border-box; margin-bottom: 10px; border-radius: 8px;">
+
+        <label style="display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Password</label>
+        <input type="password" id="viewer-login-password" placeholder="••••••••" class="search-input" style="width: 100%; box-sizing: border-box; margin-bottom: 14px; border-radius: 8px;">
+
+        <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+          <button id="viewer-login-btn" class="btn btn-primary" style="flex: 1.2; padding: 9px; font-weight: 700;">Sign In</button>
+          <button id="viewer-register-btn" class="btn" style="flex: 1; padding: 9px; border-color: var(--border-color);">Register</button>
+        </div>
+
+        <button id="viewer-google-btn" class="btn" style="width: 100%; border-color: #3b82f6; background: rgba(59, 130, 246, 0.1); color: #93c5fd; padding: 9px; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600;">
+          <span>🌐</span>
+          <span>Connect via Google Cloud / Dashboard</span>
+        </button>
+
+        <div id="viewer-auth-msg" style="display: none; margin-top: 10px; font-size: 11px; padding: 8px; border-radius: 6px;"></div>
+      </div>
+    </div>
 
     <!-- Empty State / Drag & Drop -->
     <div id="empty-state-view" class="empty-state" style="display: none;">

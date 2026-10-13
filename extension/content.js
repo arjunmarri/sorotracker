@@ -17,6 +17,7 @@
   let config = {
     dashboardUrl: 'http://localhost:3000',
     authToken: '',
+    soro_user: null,
     autoSync: false, // Auto-sync permanently disabled for bookmarks to preserve database daily quota
     syncIntervalSec: 5
   };
@@ -69,6 +70,7 @@
         browserAPI.storage.local.get([
           'dashboardUrl',
           'authToken',
+          'soro_user',
           'autoScrollSpeed',
           'autoSync',
           'syncIntervalSec',
@@ -83,6 +85,9 @@
           }
           if (res && typeof res.authToken === 'string') {
             config.authToken = res.authToken.trim();
+          }
+          if (res && res.soro_user) {
+            config.soro_user = res.soro_user;
           }
           if (res && res.autoScrollSpeed && AUTO_SCROLL_SETTINGS[res.autoScrollSpeed]) {
             autoScrollSpeed = res.autoScrollSpeed;
@@ -115,6 +120,17 @@
             });
           }
           updateHud();
+
+          // If first install or local history is empty, request background bootstrap sync
+          if (!res?.soro_history_json || res.soro_history_json.length === 0) {
+            if (browserAPI?.runtime?.sendMessage) {
+              browserAPI.runtime.sendMessage({ type: 'BOOTSTRAP_SYNC' }, (bgRes) => {
+                if (bgRes && bgRes.success && (bgRes.totalDownloaded > 0 || bgRes.localTotal > 0)) {
+                  setTimeout(loadConfig, 600);
+                }
+              });
+            }
+          }
 
           // Check if there are pending unsynced records in JSON and notify user
           notifyPendingJsonRecordsOnLoad();
@@ -620,7 +636,9 @@
         tags: isBookmarkAction && !tags.includes('bookmark') ? [...tags, 'bookmark'] : tags,
         isBookmarked: isBookmarkAction ? true : Boolean(metrics.bookmarks && metrics.bookmarks > 0),
         bookmarkedAt: isBookmarkAction ? new Date().toISOString() : undefined,
-        sourcePage: canonicalSourcePage
+        sourcePage: canonicalSourcePage,
+        userId: config.soro_user?.id || undefined,
+        userEmail: config.soro_user?.email || undefined
       };
     } catch (err) {
       return null;
@@ -891,17 +909,13 @@
 
   // Send records to the dashboard endpoint in ONE batch query exclusively upon manual user request
   async function syncToDashboard(forceAll = false) {
-    if (isSyncing || scannedRecords.size === 0) return;
+    if (isSyncing) return;
 
     // Differential sync: only send unsynced records to conserve Firestore daily quota
     const allItems = Array.from(scannedRecords.values());
     const unsyncedItems = allItems.filter(item => !syncedRecordIds.has(item.id));
     const items = forceAll ? allItems : unsyncedItems;
-
-    if (items.length === 0) {
-      showToast(`All ${scannedRecords.size} scanned records are already synced to SoroTrack.`);
-      return;
-    }
+    const allLocalSnippetIds = Array.from(scannedRecords.keys());
 
     isSyncing = true;
     syncStatus = 'syncing';
@@ -914,7 +928,13 @@
     });
 
     try {
-      showToast(`Manually pushing ${items.length} records to SoroTrack (1 batch query)...`);
+      if (items.length > 0) {
+        showToast(`Step 1: Sending ${items.length} local records to server...`);
+      } else if (allLocalSnippetIds.length === 0) {
+        showToast(`Initial Sync: Connecting to SoroTrack to download all snippets locally...`);
+      } else {
+        showToast(`Checking server for any missing snippet data...`);
+      }
 
       let syncResult = null;
       let usedBackgroundRelay = false;
@@ -929,6 +949,7 @@
                 endpoint,
                 authToken: config.authToken,
                 records: items,
+                clientSnippetIds: allLocalSnippetIds,
                 source: window.location.href,
                 timestamp: new Date().toISOString()
               }
@@ -942,7 +963,7 @@
           });
 
           if (bgResponse && bgResponse.success) {
-            syncResult = bgResponse.result;
+            syncResult = bgResponse.result || bgResponse;
             usedBackgroundRelay = true;
           } else if (bgResponse && bgResponse.authError) {
             throw new Error('Authentication failed (401). Please check the Sync Auth Token in extension settings.');
@@ -961,20 +982,33 @@
 
       // 2. Fallback to direct fetch if background relay wasn't active
       if (!usedBackgroundRelay) {
+        const extVersion = (browserAPI?.runtime?.getManifest && browserAPI.runtime.getManifest().version) || '1.1.0';
         const headers = {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'x-extension-version': extVersion
         };
         if (config.authToken) {
           headers['Authorization'] = `Bearer ${config.authToken}`;
           headers['x-api-key'] = config.authToken;
+        }
+        if (config.soro_user) {
+          if (config.soro_user.id) headers['x-user-id'] = config.soro_user.id;
+          if (config.soro_user.email) headers['x-user-email'] = config.soro_user.email;
         }
 
         const response = await fetch(endpoint, {
           method: 'POST',
           headers,
           body: JSON.stringify({
-            records: items,
+            records: items.map(r => ({
+              ...r,
+              userId: r.userId || config.soro_user?.id,
+              userEmail: r.userEmail || config.soro_user?.email
+            })),
+            clientSnippetIds: allLocalSnippetIds,
+            userId: config.soro_user?.id,
+            userEmail: config.soro_user?.email,
             source: window.location.href,
             timestamp: new Date().toISOString()
           })
@@ -989,6 +1023,33 @@
         }
 
         syncResult = await response.json();
+      }
+
+      // Step 2: Ingest any already synced server snippets pushed to update local JSON
+      const pushedServerRecords = Array.isArray(syncResult?.serverRecordsToPush)
+        ? syncResult.serverRecordsToPush
+        : (Array.isArray(syncResult?.step2?.serverRecordsToPush) ? syncResult.step2.serverRecordsToPush : []);
+
+      let newlyAddedFromServer = 0;
+      if (pushedServerRecords.length > 0) {
+        pushedServerRecords.forEach(srvItem => {
+          if (!srvItem || !srvItem.id) return;
+          syncedRecordIds.add(srvItem.id);
+          if (scannedRecords.has(srvItem.id)) {
+            const existing = scannedRecords.get(srvItem.id);
+            existing.syncedAt = srvItem.syncedAt || existing.syncedAt || syncTimestamp;
+            if (srvItem.isBookmarked && !existing.isBookmarked) {
+              existing.isBookmarked = true;
+              existing.bookmarkedAt = srvItem.bookmarkedAt || syncTimestamp;
+            }
+          } else {
+            scannedRecords.set(srvItem.id, {
+              ...srvItem,
+              syncedAt: srvItem.syncedAt || syncTimestamp
+            });
+            newlyAddedFromServer++;
+          }
+        });
       }
 
       // Check if Firestore daily write quota limit was encountered
@@ -1007,8 +1068,12 @@
           const mem = scannedRecords.get(it.id);
           if (mem) mem.syncedAt = syncTimestamp;
         });
-        const gcpNotice = syncResult?.collection ? ` -> GCP [${syncResult.collection}]` : '';
-        showToast(`Manual Sync Complete! ${items.length} records saved in 1 batch query${gcpNotice}`, 4000);
+
+        if (newlyAddedFromServer > 0) {
+          showToast(`✓ Sync Complete! Sent ${items.length} local snippets & updated local JSON with ${newlyAddedFromServer} server snippets.`, 4500);
+        } else {
+          showToast(`✓ Sync Complete! Server and local JSON are in sync (${scannedRecords.size} snippets).`, 4000);
+        }
       }
 
       persistRecordsToJsonStorage();
@@ -1717,6 +1782,23 @@
           <button id="min-btn" class="btn-min" title="Minimize/Maximize">_</button>
         </div>
         <div id="body" class="hud-body">
+          <!-- Proactive Upgrade Alert inside HUD -->
+          <div id="hud-upgrade-card" style="display: none; background: #2a1b08; border: 1px solid #d97706; border-radius: 8px; padding: 8px; margin-bottom: 10px; font-size: 11px;">
+            <div style="font-weight: 700; color: #fbbf24; display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+              <span style="display: flex; align-items: center; gap: 4px;">
+                <span>🚀</span>
+                <span>Upgrade: <strong id="hud-upgrade-tag">v1.2.0</strong></span>
+              </span>
+              <button id="hud-upgrade-close" style="background: transparent; border: none; color: #fbbf24; cursor: pointer; font-size: 12px; padding: 0 4px;" title="Dismiss">✕</button>
+            </div>
+            <div id="hud-upgrade-msg" style="color: #fde68a; font-size: 10px; margin-bottom: 6px; line-height: 1.3;">
+              New version ready on SoroTrack. Upgrade for new features &amp; fixes.
+            </div>
+            <button id="hud-upgrade-btn" style="background: #f59e0b; color: #1c1917; font-weight: 700; border: none; border-radius: 4px; padding: 5px 8px; cursor: pointer; width: 100%; font-size: 10.5px;">
+              ⬇ Download Upgrade (.zip)
+            </button>
+          </div>
+
           <div id="status-banner" class="status-banner online">
             <span>📁</span>
             <span>Manual Sync Mode · All saved to JSON</span>
@@ -1880,6 +1962,35 @@
         minBtn.textContent = isHidden ? '_' : '+';
       }
     });
+
+    // Upgrade Alert Listeners
+    const hudUpgradeCard = shadow.getElementById('hud-upgrade-card');
+    const hudUpgradeClose = shadow.getElementById('hud-upgrade-close');
+    const hudUpgradeBtn = shadow.getElementById('hud-upgrade-btn');
+    const hudUpgradeTag = shadow.getElementById('hud-upgrade-tag');
+    const hudUpgradeMsg = shadow.getElementById('hud-upgrade-msg');
+
+    hudUpgradeClose?.addEventListener('click', () => {
+      if (hudUpgradeCard) hudUpgradeCard.style.display = 'none';
+    });
+
+    hudUpgradeBtn?.addEventListener('click', () => {
+      if (browserAPI?.runtime?.sendMessage) {
+        browserAPI.runtime.sendMessage({ type: 'DOWNLOAD_UPGRADE' });
+        showToast('Initiating upgrade download from SoroTrack...');
+      }
+    });
+
+    // Proactively check version on HUD creation
+    if (browserAPI?.runtime?.sendMessage) {
+      browserAPI.runtime.sendMessage({ type: 'CHECK_VERSION' }, (res) => {
+        if (res && res.success && res.isOutdated) {
+          if (hudUpgradeCard) hudUpgradeCard.style.display = 'block';
+          if (hudUpgradeTag) hudUpgradeTag.textContent = `v${res.latestVersion}`;
+          if (hudUpgradeMsg && res.releaseNotes) hudUpgradeMsg.textContent = res.releaseNotes;
+        }
+      });
+    }
 
     updateHud();
   }

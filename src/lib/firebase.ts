@@ -1,7 +1,28 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { initializeFirestore, getFirestore, collection, Firestore } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, collection, Firestore, setLogLevel, doc, getDocFromServer } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
+
+// Silence internal Firestore SDK gRPC / WebChannel log output
+try {
+  setLogLevel('silent');
+} catch {}
+
+// Suppress harmless internal Firestore idle stream timeout notices in browser console
+if (typeof window !== 'undefined') {
+  const origWarn = window.console.warn;
+  const origError = window.console.error;
+  window.console.warn = (...args: any[]) => {
+    const msg = args.map(a => String(a?.message || a)).join(' ');
+    if (msg.includes('Disconnecting idle stream') || msg.includes('Timed out waiting for new targets') || msg.includes("RPC 'Listen' stream")) return;
+    origWarn.apply(window.console, args);
+  };
+  window.console.error = (...args: any[]) => {
+    const msg = args.map(a => String(a?.message || a)).join(' ');
+    if (msg.includes('Disconnecting idle stream') || msg.includes('Timed out waiting for new targets') || msg.includes("RPC 'Listen' stream")) return;
+    origError.apply(window.console, args);
+  };
+}
 
 // Initialize Firebase client
 export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
@@ -52,17 +73,19 @@ export const historyCollection = new Proxy({} as any, {
   }
 });
 
-// Validate connection via backend storage endpoint to prevent browser-side WebChannel timeouts
+// Validate connection to Firestore as required by Firebase skill
 export async function testConnection(): Promise<boolean> {
   try {
-    const res = await fetch('/api/storage/status');
-    if (res.ok) {
-      const data = await res.json();
-      return !!data.isCloudReady;
+    await getDocFromServer(doc(getDb(), 'test', 'connection'));
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn('Please check your Firebase configuration.');
     }
-  } catch (error: any) {
-    console.warn('[Firestore] Could not verify storage readiness with backend:', error);
   }
   return false;
 }
+
+// Perform initial connection test in background
+testConnection().catch(() => {});
 

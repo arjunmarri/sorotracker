@@ -37,6 +37,118 @@ document.addEventListener('DOMContentLoaded', () => {
   const importJsonBtn = document.getElementById('import-json-btn');
   const popupImportJsonInput = document.getElementById('popup-import-json-input');
 
+  // User Account Management & Personal Bookmarks UI Elements
+  const accountCard = document.getElementById('user-account-card');
+  const accountLoggedOut = document.getElementById('account-logged-out');
+  const accountLoggedIn = document.getElementById('account-logged-in');
+  const popupLoginEmail = document.getElementById('popup-login-email');
+  const popupLoginPassword = document.getElementById('popup-login-password');
+  const popupLoginBtn = document.getElementById('popup-login-btn');
+  const popupRegisterBtn = document.getElementById('popup-register-btn');
+  const popupGoogleBtn = document.getElementById('popup-google-btn');
+  const popupAccountMsg = document.getElementById('popup-account-msg');
+  const popupUserAvatar = document.getElementById('popup-user-avatar');
+  const popupUserName = document.getElementById('popup-user-name');
+  const popupUserEmail = document.getElementById('popup-user-email');
+  const popupUserRole = document.getElementById('popup-user-role');
+  const popupUserBookmarksCount = document.getElementById('popup-user-bookmarks-count');
+  const toggleUserBookmarksBtn = document.getElementById('toggle-user-bookmarks-btn');
+  const popupOpenViewerBtn = document.getElementById('popup-open-viewer-btn');
+  const popupLogoutBtn = document.getElementById('popup-logout-btn');
+  const popupBookmarksPanel = document.getElementById('popup-bookmarks-panel');
+  const closeBookmarksPanelBtn = document.getElementById('close-bookmarks-panel-btn');
+  const popupBookmarksFilter = document.getElementById('popup-bookmarks-filter');
+  const popupBookmarksList = document.getElementById('popup-bookmarks-list');
+
+  let currentSoroUser = null;
+  let userPersonalBookmarks = [];
+
+  function showAccountNotice(msg, isError = false) {
+    if (!popupAccountMsg) return;
+    popupAccountMsg.style.display = 'block';
+    popupAccountMsg.style.background = isError ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)';
+    popupAccountMsg.style.border = `1px solid ${isError ? 'rgba(239, 68, 68, 0.4)' : 'rgba(16, 185, 129, 0.4)'}`;
+    popupAccountMsg.style.color = isError ? '#fca5a5' : '#a7f3d0';
+    popupAccountMsg.innerHTML = msg;
+    setTimeout(() => {
+      if (popupAccountMsg) popupAccountMsg.style.display = 'none';
+    }, 5000);
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/[&<>"']/g, m => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[m]);
+  }
+
+  function renderBookmarksList(bookmarks) {
+    if (!popupBookmarksList) return;
+    if (!bookmarks || bookmarks.length === 0) {
+      popupBookmarksList.innerHTML = '<div style="color: #94a3b8; font-size: 10.5px; text-align: center; padding: 12px 4px;">No personal bookmarks found yet.<br>Click bookmark on any tweet on X to add!</div>';
+      return;
+    }
+
+    const html = bookmarks.slice(0, 30).map(b => {
+      const url = b.tweetUrl || (b.authorHandle ? `https://x.com/${b.authorHandle.replace(/^@/, '')}/status/${b.id}` : '#');
+      const author = b.authorName || b.authorHandle || 'Post';
+      const handle = b.authorHandle || '';
+      const text = b.text ? b.text.slice(0, 120) : '(No text)';
+      const dateStr = b.createdAt ? new Date(b.createdAt).toLocaleDateString() : '';
+      return `
+        <div class="bookmark-item">
+          <div class="bookmark-text">${escapeHtml(text)}</div>
+          <div class="bookmark-author">
+            <span style="font-weight: 600; color: #cbd5e1;">${escapeHtml(author)} <span style="color: #64748b;">${escapeHtml(handle)}</span></span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span>${dateStr}</span>
+              <a href="${url}" target="_blank" style="color: #38bdf8; font-weight: 600;">Open &rarr;</a>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    popupBookmarksList.innerHTML = html;
+  }
+
+  function updateAccountDisplay(user, records) {
+    currentSoroUser = user;
+    if (user && (user.id || user.email)) {
+      if (accountLoggedOut) accountLoggedOut.style.display = 'none';
+      if (accountLoggedIn) accountLoggedIn.style.display = 'block';
+
+      if (popupUserName) popupUserName.textContent = user.displayName || user.email.split('@')[0];
+      if (popupUserEmail) popupUserEmail.textContent = user.email;
+      if (popupUserRole) popupUserRole.textContent = user.role || 'User';
+      if (popupUserAvatar) popupUserAvatar.textContent = (user.displayName || user.email || 'U').charAt(0).toUpperCase();
+
+      // Filter personal bookmarks for this connected user
+      const list = Array.isArray(records) ? records : [];
+      const userEmail = (user.email || '').toLowerCase().trim();
+      const userId = user.id;
+
+      userPersonalBookmarks = list.filter(r => {
+        const isBm = r.isBookmarked || (Array.isArray(r.tags) && r.tags.includes('bookmark'));
+        if (!isBm) return false;
+        const matchesId = Boolean(userId && r.userId === userId);
+        const matchesEmail = Boolean(userEmail && r.userEmail && r.userEmail.toLowerCase().trim() === userEmail);
+        return matchesId || matchesEmail;
+      });
+
+      if (popupUserBookmarksCount) {
+        popupUserBookmarksCount.textContent = userPersonalBookmarks.length;
+      }
+
+      renderBookmarksList(userPersonalBookmarks);
+    } else {
+      if (accountLoggedOut) accountLoggedOut.style.display = 'block';
+      if (accountLoggedIn) accountLoggedIn.style.display = 'none';
+      if (popupBookmarksPanel) popupBookmarksPanel.style.display = 'none';
+      userPersonalBookmarks = [];
+    }
+  }
+
   function showImportFeedback(msg, type = 'info') {
     if (!importFeedbackBanner) return;
     importFeedbackBanner.style.display = 'block';
@@ -59,6 +171,63 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 6000);
   }
 
+  const firstInstallCard = document.getElementById('first-install-card');
+  const firstInstallDownloadBtn = document.getElementById('first-install-download-btn');
+
+  // Upgrade Alert UI Elements
+  const popupInstalledVersionEl = document.getElementById('popup-installed-version');
+  const upgradeAlertCard = document.getElementById('upgrade-alert-card');
+  const upgradeVersionTag = document.getElementById('upgrade-version-tag');
+  const upgradeBtnVersion = document.getElementById('upgrade-btn-version');
+  const upgradeNotes = document.getElementById('upgrade-notes');
+  const upgradeDownloadBtn = document.getElementById('upgrade-download-btn');
+  const upgradeDismissBtn = document.getElementById('upgrade-dismiss-btn');
+
+  // Display current installed version from manifest
+  const currentExtVersion = (browserAPI.runtime.getManifest && browserAPI.runtime.getManifest().version) || '1.1.0';
+  if (popupInstalledVersionEl) {
+    popupInstalledVersionEl.textContent = `v${currentExtVersion}`;
+  }
+
+  // Check version proactively when popup opens
+  function checkVersionForPopup() {
+    browserAPI.runtime.sendMessage({ type: 'CHECK_VERSION' }, (res) => {
+      if (res && res.success && res.isOutdated) {
+        if (upgradeAlertCard) upgradeAlertCard.style.display = 'block';
+        if (upgradeVersionTag) upgradeVersionTag.textContent = `v${res.latestVersion}`;
+        if (upgradeBtnVersion) upgradeBtnVersion.textContent = `v${res.latestVersion}`;
+        if (upgradeNotes && res.releaseNotes) upgradeNotes.textContent = res.releaseNotes;
+      } else {
+        if (upgradeAlertCard) upgradeAlertCard.style.display = 'none';
+      }
+    });
+  }
+
+  // Trigger check on load
+  checkVersionForPopup();
+
+  // Dismiss upgrade alert
+  upgradeDismissBtn?.addEventListener('click', () => {
+    if (upgradeAlertCard) upgradeAlertCard.style.display = 'none';
+  });
+
+  // Upgrade button downloads versioned zip package
+  upgradeDownloadBtn?.addEventListener('click', () => {
+    if (upgradeDownloadBtn) {
+      upgradeDownloadBtn.textContent = '⏳ Preparing Upgrade Download...';
+      upgradeDownloadBtn.disabled = true;
+    }
+    browserAPI.runtime.sendMessage({ type: 'DOWNLOAD_UPGRADE' }, (res) => {
+      showImportFeedback('✓ Upgrade download initiated. Check your browser downloads for the versioned zip file.', 'success');
+      setTimeout(() => {
+        if (upgradeDownloadBtn) {
+          upgradeDownloadBtn.disabled = false;
+          upgradeDownloadBtn.innerHTML = `⬇ Download ${upgradeBtnVersion?.textContent || 'Upgrade'} (.zip)`;
+        }
+      }, 3000);
+    });
+  });
+
   function updateStatusDisplay(status, unsyncedCount, totalCount) {
     const isOffline = status === 'offline';
     if (syncStatusEl) {
@@ -74,6 +243,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (offlineBanner) {
       offlineBanner.style.display = isOffline ? 'block' : 'none';
     }
+    if (firstInstallCard) {
+      firstInstallCard.style.display = (typeof totalCount === 'number' && totalCount === 0) ? 'block' : 'none';
+    }
     if (manualSyncPromptCard) {
       if (unsyncedCount > 0) {
         manualSyncPromptCard.style.display = 'block';
@@ -85,16 +257,43 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    // Always allow sync if there are records in local storage waiting to sync
-    if (syncBtn && unsyncedCount > 0) {
+    // Always allow sync if there are records in local storage waiting to sync or if fresh install
+    if (syncBtn) {
       syncBtn.disabled = false;
     }
   }
+
+  firstInstallDownloadBtn?.addEventListener('click', () => {
+    if (firstInstallDownloadBtn) {
+      firstInstallDownloadBtn.textContent = '⏳ Downloading all snippets...';
+      firstInstallDownloadBtn.disabled = true;
+    }
+    showImportFeedback('Connecting to server to download all snippet data locally...', 'info');
+
+    browserAPI.runtime.sendMessage({ type: 'BOOTSTRAP_SYNC' }, (bgRes) => {
+      if (bgRes && bgRes.success) {
+        browserAPI.storage.local.get(['soro_history_json', 'soro_synced_ids'], (fresh) => {
+          const freshRecords = Array.isArray(fresh?.soro_history_json) ? fresh.soro_history_json : [];
+          updateStatusDisplay('online', 0, freshRecords.length);
+          showImportFeedback(`✓ Complete! Downloaded ${freshRecords.length} snippets to your browser's local JSON!`, 'success');
+          if (firstInstallCard) firstInstallCard.style.display = 'none';
+        });
+      } else {
+        if (firstInstallDownloadBtn) {
+          firstInstallDownloadBtn.textContent = '⬇ Download All Snippets Locally';
+          firstInstallDownloadBtn.disabled = false;
+        }
+        showImportFeedback(`⚠ Download failed: ${bgRes?.error || 'Server unreachable'}. Verify your connection.`, 'error');
+      }
+    });
+  });
 
   // Load saved dashboard URL, auth token, and storage state
   browserAPI.storage.local.get([
     'dashboardUrl',
     'authToken',
+    'soro_user',
+    'soro_history_json',
     'soro_sync_status',
     'soro_history_count',
     'soro_unsynced_count',
@@ -113,10 +312,232 @@ document.addEventListener('DOMContentLoaded', () => {
       authTokenInput.value = res.authToken;
     }
 
+    updateAccountDisplay(res?.soro_user || null, res?.soro_history_json || []);
+
     renderAnonModeUI(Boolean(res?.soro_anon_mode));
 
     const currentStatus = res?.soro_sync_status || (res?.soro_quota_exhausted ? 'offline' : 'online');
     updateStatusDisplay(currentStatus, res?.soro_unsynced_count || 0, res?.soro_history_count || 0);
+  });
+
+  // Listen for live storage changes (e.g. user logged in via web dashboard bridge)
+  if (browserAPI.storage && browserAPI.storage.onChanged) {
+    browserAPI.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName === 'local') {
+        if (changes.soro_user || changes.soro_history_json) {
+          browserAPI.storage.local.get(['soro_user', 'soro_history_json'], (curr) => {
+            updateAccountDisplay(curr?.soro_user || null, curr?.soro_history_json || []);
+          });
+        }
+      }
+    });
+  }
+
+  // Account Login Form Handler
+  popupLoginBtn?.addEventListener('click', async () => {
+    const email = popupLoginEmail?.value ? popupLoginEmail.value.trim() : '';
+    const password = popupLoginPassword?.value ? popupLoginPassword.value.trim() : '';
+    const dashUrl = (dashUrlInput?.value || 'http://localhost:3000').replace(/\/+$/, '');
+
+    if (!email) {
+      showAccountNotice('Please enter your email address.', true);
+      return;
+    }
+
+    popupLoginBtn.disabled = true;
+    popupLoginBtn.textContent = 'Signing in...';
+
+    try {
+      const res = await fetch(`${dashUrl}/api/auth/extension-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to sign in.');
+      }
+
+      // Store authenticated user session and token
+      const updates = { soro_user: data.user };
+      if (data.token) {
+        updates.authToken = data.token;
+        if (authTokenInput) authTokenInput.value = data.token;
+      }
+
+      browserAPI.storage.local.set(updates, async () => {
+        showAccountNotice(`✓ Connected as ${data.user.email}!`, false);
+        showImportFeedback(`✓ Connected to ${data.user.email}. Personal bookmarks ready!`, 'success');
+
+        // Broadcast to background script
+        if (browserAPI.runtime?.sendMessage) {
+          browserAPI.runtime.sendMessage({ type: 'SYNC_USER_SESSION', user: data.user });
+        }
+
+        // Fetch user's server bookmarks to sync local view
+        try {
+          const syncRes = await fetch(`${dashUrl}/api/records?scope=my`, {
+            headers: {
+              'x-user-id': data.user.id,
+              'x-user-email': data.user.email,
+              ...(data.token ? { 'Authorization': `Bearer ${data.token}`, 'x-api-key': data.token } : {})
+            }
+          });
+          if (syncRes.ok) {
+            const syncData = await syncRes.json();
+            if (syncData.records && Array.isArray(syncData.records)) {
+              // Merge into local storage
+              browserAPI.storage.local.get(['soro_history_json'], (cur) => {
+                const map = new Map();
+                (cur?.soro_history_json || []).forEach(r => { if (r?.id) map.set(r.id, r); });
+                syncData.records.forEach(r => { if (r?.id) map.set(r.id, r); });
+                const merged = Array.from(map.values());
+                browserAPI.storage.local.set({
+                  soro_history_json: merged,
+                  soro_history_count: merged.length
+                }, () => {
+                  updateAccountDisplay(data.user, merged);
+                });
+              });
+            }
+          }
+        } catch (e) {
+          console.warn('[Popup] Sync on login notice:', e);
+        }
+
+        // Refresh UI
+        browserAPI.storage.local.get(['soro_history_json'], (cur) => {
+          updateAccountDisplay(data.user, cur?.soro_history_json || []);
+        });
+      });
+    } catch (err) {
+      showAccountNotice(err.message || 'Login failed', true);
+    } finally {
+      if (popupLoginBtn) {
+        popupLoginBtn.disabled = false;
+        popupLoginBtn.textContent = 'Sign In';
+      }
+    }
+  });
+
+  // Account Register Form Handler
+  popupRegisterBtn?.addEventListener('click', async () => {
+    const email = popupLoginEmail?.value ? popupLoginEmail.value.trim() : '';
+    const password = popupLoginPassword?.value ? popupLoginPassword.value.trim() : '';
+    const dashUrl = (dashUrlInput?.value || 'http://localhost:3000').replace(/\/+$/, '');
+
+    if (!email) {
+      showAccountNotice('Please enter an email address to register.', true);
+      return;
+    }
+
+    popupRegisterBtn.disabled = true;
+    popupRegisterBtn.textContent = 'Registering...';
+
+    try {
+      const res = await fetch(`${dashUrl}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, displayName: email.split('@')[0] })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Registration failed.');
+      }
+
+      // Store authenticated user session and token
+      const updates = { soro_user: data.user };
+      if (data.token) {
+        updates.authToken = data.token;
+        if (authTokenInput) authTokenInput.value = data.token;
+      }
+
+      browserAPI.storage.local.set(updates, () => {
+        showAccountNotice(`✓ Account created for ${data.user.email}!`, false);
+        if (browserAPI.runtime?.sendMessage) {
+          browserAPI.runtime.sendMessage({ type: 'SYNC_USER_SESSION', user: data.user });
+        }
+        updateAccountDisplay(data.user, []);
+      });
+    } catch (err) {
+      showAccountNotice(err.message || 'Registration failed', true);
+    } finally {
+      if (popupRegisterBtn) {
+        popupRegisterBtn.disabled = false;
+        popupRegisterBtn.textContent = 'Register';
+      }
+    }
+  });
+
+  // Connect via Google / Web Dashboard
+  popupGoogleBtn?.addEventListener('click', () => {
+    const dashUrl = (dashUrlInput?.value || 'http://localhost:3000').replace(/\/+$/, '');
+    if (browserAPI.tabs && browserAPI.tabs.create) {
+      browserAPI.tabs.create({ url: `${dashUrl}` });
+    } else {
+      window.open(dashUrl, '_blank');
+    }
+    showAccountNotice('Opening SoroTrack. Sign in with Google Cloud there to link automatically!', false);
+  });
+
+  // Account Logout Handler
+  popupLogoutBtn?.addEventListener('click', () => {
+    browserAPI.storage.local.remove(['soro_user'], () => {
+      currentSoroUser = null;
+      updateAccountDisplay(null, []);
+      if (browserAPI.runtime?.sendMessage) {
+        browserAPI.runtime.sendMessage({ type: 'USER_LOGOUT' });
+      }
+      showImportFeedback('Account disconnected. Sign in to view your bookmarks.', 'info');
+    });
+  });
+
+  // Toggle Personal Bookmarks Panel
+  toggleUserBookmarksBtn?.addEventListener('click', () => {
+    if (!popupBookmarksPanel) return;
+    const isVisible = popupBookmarksPanel.style.display !== 'none';
+    popupBookmarksPanel.style.display = isVisible ? 'none' : 'block';
+    if (toggleUserBookmarksBtn) {
+      toggleUserBookmarksBtn.textContent = isVisible ? 'View Bookmarks ▾' : 'Hide Bookmarks ▴';
+    }
+  });
+
+  // Close Bookmarks Panel Button
+  closeBookmarksPanelBtn?.addEventListener('click', () => {
+    if (popupBookmarksPanel) popupBookmarksPanel.style.display = 'none';
+    if (toggleUserBookmarksBtn) toggleUserBookmarksBtn.textContent = 'View Bookmarks ▾';
+  });
+
+  // Filter Bookmarks in Real Time
+  popupBookmarksFilter?.addEventListener('input', () => {
+    const q = (popupBookmarksFilter.value || '').trim().toLowerCase();
+    if (!q) {
+      renderBookmarksList(userPersonalBookmarks);
+      return;
+    }
+    const filtered = userPersonalBookmarks.filter(b => 
+      (b.text && b.text.toLowerCase().includes(q)) ||
+      (b.authorName && b.authorName.toLowerCase().includes(q)) ||
+      (b.authorHandle && b.authorHandle.toLowerCase().includes(q))
+    );
+    renderBookmarksList(filtered);
+  });
+
+  // Open Full Archive Viewer from account card
+  popupOpenViewerBtn?.addEventListener('click', () => {
+    const viewerUrl = browserAPI.runtime.getURL('viewer.html');
+    if (browserAPI.windows && browserAPI.windows.create) {
+      browserAPI.windows.create({
+        url: viewerUrl,
+        type: 'normal',
+        width: 1320,
+        height: 880
+      });
+    } else if (browserAPI.tabs && browserAPI.tabs.create) {
+      browserAPI.tabs.create({ url: viewerUrl });
+    }
   });
 
   function renderAnonModeUI(enabled) {
@@ -345,14 +766,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const unsyncedRecords = allRecords.filter(r => !syncedIds.has(r.id));
       const itemsToSync = unsyncedRecords.length > 0 ? unsyncedRecords : allRecords;
 
-      if (itemsToSync.length === 0) {
-        showImportFeedback('No records in local JSON storage to sync.', 'info');
-        resetSyncButtons();
-        return;
-      }
-
       const targetEndpoint = (res?.dashboardUrl || dashUrlInput.value || 'http://localhost:3000').replace(/\/+$/, '') + '/api/sync';
       const token = res?.authToken || authTokenInput.value || '';
+      const clientSnippetIds = allRecords.map(r => r && r.id).filter(Boolean);
 
       browserAPI.runtime.sendMessage({
         type: 'SYNC_RECORDS',
@@ -360,33 +776,27 @@ document.addEventListener('DOMContentLoaded', () => {
           endpoint: targetEndpoint,
           authToken: token,
           records: itemsToSync,
+          clientSnippetIds,
+          clientTotal: allRecords.length,
           source: 'extension_popup_direct_sync',
           timestamp: new Date().toISOString()
         }
       }, (bgRes) => {
         resetSyncButtons();
         if (bgRes && bgRes.success) {
-          const syncTimestamp = new Date().toISOString();
-          itemsToSync.forEach(r => {
-            syncedIds.add(r.id);
-            r.syncedAt = syncTimestamp;
-          });
-          allRecords.forEach(r => {
-            if (syncedIds.has(r.id)) {
-              r.syncedAt = r.syncedAt || syncTimestamp;
+          browserAPI.storage.local.get(['soro_history_json', 'soro_synced_ids'], (freshRes) => {
+            const freshRecords = Array.isArray(freshRes?.soro_history_json) ? freshRes.soro_history_json : [];
+            const freshSyncedIds = Array.isArray(freshRes?.soro_synced_ids) ? freshRes.soro_synced_ids : [];
+            const remainingUnsynced = Math.max(0, freshRecords.length - freshSyncedIds.length);
+
+            updateStatusDisplay('online', remainingUnsynced, freshRecords.length);
+
+            const pushedCount = bgRes.pushedToLocalCount || (bgRes.result?.pushedToClientCount ?? 0);
+            if (pushedCount > 0) {
+              showImportFeedback(`✓ Step 1 & 2 Complete! Sent ${itemsToSync.length} local snippets & updated local JSON with ${pushedCount} server snippets (Total: ${freshRecords.length}).`, 'success');
+            } else {
+              showImportFeedback(`✓ Step 1 & 2 Complete! Server and local JSON are in sync (${freshRecords.length} snippets).`, 'success');
             }
-          });
-          const updatedSyncedIds = Array.from(syncedIds);
-          const remainingUnsynced = allRecords.length - updatedSyncedIds.length;
-          browserAPI.storage.local.set({
-            soro_history_json: allRecords,
-            soro_synced_ids: updatedSyncedIds,
-            soro_unsynced_count: remainingUnsynced,
-            soro_sync_status: 'online',
-            soro_last_sync_time: syncTimestamp
-          }, () => {
-            updateStatusDisplay('online', remainingUnsynced, allRecords.length);
-            showImportFeedback(`✓ Successfully synced ${itemsToSync.length} records to SoroTrack database!`, 'success');
           });
         } else {
           const errMsg = bgRes?.error || 'Failed to connect to SoroTrack service. Please verify URL and Auth Token.';

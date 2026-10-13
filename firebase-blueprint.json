@@ -9,6 +9,14 @@
           "type": "string",
           "description": "Unique identifier for the record or tweet status ID"
         },
+        "userId": {
+          "type": "string",
+          "description": "User ID of the account owner who saved/bookmarked this record"
+        },
+        "userEmail": {
+          "type": "string",
+          "description": "Email address of the account owner"
+        },
         "tweetUrl": {
           "type": "string",
           "description": "Direct canonical link to the tweet on x.com"

@@ -65,6 +65,50 @@
   const themeIcon = document.getElementById('theme-icon');
   const toastNotice = document.getElementById('toast-notice');
 
+  // User Account & Access Control Elements
+  let currentUser = null;
+  const viewerUserContainer = document.getElementById('viewer-user-container');
+  const viewerUserLabel = document.getElementById('viewer-user-label');
+  const viewerBtnLogout = document.getElementById('viewer-btn-logout');
+  const viewerBtnLoginOpen = document.getElementById('viewer-btn-login-open');
+  const viewerAccountLockedView = document.getElementById('viewer-account-locked-view');
+  const viewerLoginEmail = document.getElementById('viewer-login-email');
+  const viewerLoginPassword = document.getElementById('viewer-login-password');
+  const viewerLoginBtn = document.getElementById('viewer-login-btn');
+  const viewerRegisterBtn = document.getElementById('viewer-register-btn');
+  const viewerGoogleBtn = document.getElementById('viewer-google-btn');
+  const viewerAuthMsg = document.getElementById('viewer-auth-msg');
+
+  function showViewerAuthNotice(msg, isError = false) {
+    if (!viewerAuthMsg) return;
+    viewerAuthMsg.style.display = 'block';
+    viewerAuthMsg.style.background = isError ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)';
+    viewerAuthMsg.style.border = `1px solid ${isError ? 'rgba(239, 68, 68, 0.4)' : 'rgba(16, 185, 129, 0.4)'}`;
+    viewerAuthMsg.style.color = isError ? '#fca5a5' : '#a7f3d0';
+    viewerAuthMsg.innerHTML = msg;
+    setTimeout(() => {
+      if (viewerAuthMsg) viewerAuthMsg.style.display = 'none';
+    }, 5000);
+  }
+
+  function updateViewerUserUI(user) {
+    currentUser = user;
+    if (user && (user.id || user.email)) {
+      if (viewerUserContainer) viewerUserContainer.style.display = 'inline-flex';
+      if (viewerBtnLoginOpen) viewerBtnLoginOpen.style.display = 'none';
+      if (viewerUserLabel) viewerUserLabel.textContent = `👤 ${user.displayName || user.email}`;
+      if (viewerAccountLockedView) viewerAccountLockedView.style.display = 'none';
+    } else {
+      if (viewerUserContainer) viewerUserContainer.style.display = 'none';
+      if (viewerBtnLoginOpen) viewerBtnLoginOpen.style.display = 'inline-flex';
+      if (viewerAccountLockedView) viewerAccountLockedView.style.display = 'block';
+      if (cardsContainer) cardsContainer.style.display = 'none';
+      if (compactContainer) compactContainer.style.display = 'none';
+      if (emptyStateView) emptyStateView.style.display = 'none';
+      if (loadMoreContainer) loadMoreContainer.style.display = 'none';
+    }
+  }
+
   // Classification Patterns matching SoroTrack
   const PATTERNS = {
     white_paper: [
@@ -320,21 +364,32 @@
         baseUrl = storedUrl;
       }
 
-      // If running inside extension, attempt to read stored dashboardUrl
+      // If running inside extension, attempt to read stored dashboardUrl, authToken, and soro_user
+      let authToken = '';
       if (browserAPI?.storage?.local) {
         try {
-          const cfg = await new Promise(res => browserAPI.storage.local.get(['dashboardUrl'], res));
+          const cfg = await new Promise(res => browserAPI.storage.local.get(['dashboardUrl', 'authToken', 'soro_user'], res));
           if (cfg?.dashboardUrl) baseUrl = cfg.dashboardUrl;
+          if (cfg?.authToken) authToken = cfg.authToken;
+          if (cfg?.soro_user) currentUser = cfg.soro_user;
         } catch {}
       }
 
       baseUrl = baseUrl.replace(/\/+$/, '');
 
-      // Fetch all records from cloud DB endpoint
-      const targetUrl = `${baseUrl}/api/export/json`;
-      const res = await fetch(targetUrl, {
-        headers: { 'Accept': 'application/json' }
-      });
+      // Fetch user's records from cloud DB endpoint
+      const targetUrl = currentUser ? `${baseUrl}/api/records?scope=my` : `${baseUrl}/api/export/json`;
+      const headers = { 'Accept': 'application/json' };
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+        headers['x-api-key'] = authToken;
+      }
+      if (currentUser) {
+        if (currentUser.id) headers['x-user-id'] = currentUser.id;
+        if (currentUser.email) headers['x-user-email'] = currentUser.email;
+      }
+
+      const res = await fetch(targetUrl, { headers });
 
       if (!res.ok) {
         throw new Error(`Cloud server responded with status ${res.status}`);
@@ -411,38 +466,77 @@
     }
   }
 
-  // Load Data Pipeline
+  // Load Data Pipeline (Strictly isolated to authenticated user)
   function loadLocalData(callback) {
-    // 1. Check Web Extension Storage
+    const processData = (user, rawRecords, ids) => {
+      updateViewerUserUI(user);
+
+      if (!user || (!user.id && !user.email)) {
+        // "Only users who connect their account should see their own bookmarks and not others"
+        allRecords = [];
+        syncedIds = new Set();
+        onDataLoaded();
+        if (callback) callback();
+        return;
+      }
+
+      const userEmail = (user.email || '').toLowerCase().trim();
+      const userId = user.id;
+
+      const userRecords = (rawRecords || []).filter(r => {
+        const matchesId = Boolean(userId && r.userId === userId);
+        const matchesEmail = Boolean(userEmail && r.userEmail && r.userEmail.toLowerCase().trim() === userEmail);
+        return matchesId || matchesEmail;
+      });
+
+      allRecords = userRecords;
+      syncedIds = ids;
+      onDataLoaded();
+      if (callback) callback();
+    };
+
     if (browserAPI && browserAPI.storage && browserAPI.storage.local) {
-      browserAPI.storage.local.get(['soro_history_json', 'soro_synced_ids'], (res) => {
+      browserAPI.storage.local.get(['soro_user', 'soro_history_json', 'soro_synced_ids'], (res) => {
+        const user = res?.soro_user || null;
         const records = res?.soro_history_json || [];
         const ids = new Set(res?.soro_synced_ids || []);
 
-        if (records.length > 0) {
-          const normalized = [];
-          records.forEach(r => {
-            const n = normalizeRecord(r);
-            if (n) {
-              if (ids.has(n.id) || !n.syncedAt) {
-                n.syncedAt = n.syncedAt || n.scannedAt || n.createdAt;
-                ids.add(n.id);
-              }
-              normalized.push(n);
+        const normalized = [];
+        records.forEach(r => {
+          const n = normalizeRecord(r);
+          if (n) {
+            if (ids.has(n.id) || !n.syncedAt) {
+              n.syncedAt = n.syncedAt || n.scannedAt || n.createdAt;
+              ids.add(n.id);
             }
-          });
-          allRecords = normalized;
-          syncedIds = ids;
-          onDataLoaded();
-          if (callback) callback();
-          return;
-        }
+            normalized.push(n);
+          }
+        });
 
-        // Fallback to localStorage
-        loadFromLocalStorage(callback);
+        processData(user, normalized, ids);
       });
     } else {
-      loadFromLocalStorage(callback);
+      try {
+        const userStr = localStorage.getItem('soro_user') || localStorage.getItem('soro_auth_user');
+        const user = userStr ? JSON.parse(userStr) : null;
+        const stored = localStorage.getItem('soro_history_local_records') || 
+                       localStorage.getItem('soro_local_viewer_data') || 
+                       localStorage.getItem('soro_history_json');
+        const parsed = stored ? JSON.parse(stored) : [];
+        const list = Array.isArray(parsed) ? parsed : (parsed.records || parsed.items || []);
+        const normalized = [];
+        const ids = new Set();
+        list.forEach(r => {
+          const n = normalizeRecord(r);
+          if (n) {
+            ids.add(n.id);
+            normalized.push(n);
+          }
+        });
+        processData(user, normalized, ids);
+      } catch (e) {
+        processData(null, [], new Set());
+      }
     }
   }
 
@@ -1184,12 +1278,175 @@
         showToast('Storage reloaded successfully!');
       });
     });
+
+    // Account Authentication Controls
+    viewerBtnLoginOpen?.addEventListener('click', () => {
+      if (viewerAccountLockedView) {
+        viewerAccountLockedView.style.display = 'block';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    });
+
+    viewerBtnLogout?.addEventListener('click', () => {
+      if (browserAPI?.storage?.local) {
+        browserAPI.storage.local.remove(['soro_user'], () => {
+          if (browserAPI.runtime?.sendMessage) {
+            browserAPI.runtime.sendMessage({ type: 'USER_LOGOUT' });
+          }
+          currentUser = null;
+          loadLocalData();
+          showToast('Signed out of SoroTrack account.', 3000);
+        });
+      } else {
+        localStorage.removeItem('soro_user');
+        currentUser = null;
+        loadLocalData();
+        showToast('Signed out of account.', 3000);
+      }
+    });
+
+    // Sign in from Viewer
+    viewerLoginBtn?.addEventListener('click', async () => {
+      const email = viewerLoginEmail?.value ? viewerLoginEmail.value.trim() : '';
+      const password = viewerLoginPassword?.value ? viewerLoginPassword.value.trim() : '';
+      if (!email) {
+        showViewerAuthNotice('Please enter your email address.', true);
+        return;
+      }
+
+      viewerLoginBtn.disabled = true;
+      viewerLoginBtn.textContent = 'Signing in...';
+
+      let baseUrl = window.location.protocol.startsWith('http') ? window.location.origin : 'http://localhost:3000';
+      if (browserAPI?.storage?.local) {
+        const stored = await new Promise(r => browserAPI.storage.local.get(['dashboardUrl'], r));
+        if (stored?.dashboardUrl) baseUrl = stored.dashboardUrl;
+      }
+      baseUrl = baseUrl.replace(/\/+$/, '');
+
+      try {
+        const res = await fetch(`${baseUrl}/api/auth/extension-login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Sign in failed');
+        }
+
+        if (browserAPI?.storage?.local) {
+          await new Promise(r => browserAPI.storage.local.set({
+            soro_user: data.user,
+            authToken: data.token || ''
+          }, r));
+          if (browserAPI.runtime?.sendMessage) {
+            browserAPI.runtime.sendMessage({ type: 'SYNC_USER_SESSION', user: data.user });
+          }
+        } else {
+          localStorage.setItem('soro_user', JSON.stringify(data.user));
+          if (data.token) localStorage.setItem('soro_auth_token', data.token);
+        }
+
+        showViewerAuthNotice(`✓ Welcome back, ${data.user.email}!`, false);
+        currentUser = data.user;
+        fetchFromCloudDB({ silent: false, callback: () => loadLocalData() });
+      } catch (err) {
+        showViewerAuthNotice(err.message || 'Sign in failed', true);
+      } finally {
+        if (viewerLoginBtn) {
+          viewerLoginBtn.disabled = false;
+          viewerLoginBtn.textContent = 'Sign In';
+        }
+      }
+    });
+
+    // Register from Viewer
+    viewerRegisterBtn?.addEventListener('click', async () => {
+      const email = viewerLoginEmail?.value ? viewerLoginEmail.value.trim() : '';
+      const password = viewerLoginPassword?.value ? viewerLoginPassword.value.trim() : '';
+      if (!email) {
+        showViewerAuthNotice('Please enter an email address to register.', true);
+        return;
+      }
+
+      viewerRegisterBtn.disabled = true;
+      viewerRegisterBtn.textContent = 'Registering...';
+
+      let baseUrl = window.location.protocol.startsWith('http') ? window.location.origin : 'http://localhost:3000';
+      if (browserAPI?.storage?.local) {
+        const stored = await new Promise(r => browserAPI.storage.local.get(['dashboardUrl'], r));
+        if (stored?.dashboardUrl) baseUrl = stored.dashboardUrl;
+      }
+      baseUrl = baseUrl.replace(/\/+$/, '');
+
+      try {
+        const res = await fetch(`${baseUrl}/api/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, displayName: email.split('@')[0] })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Registration failed');
+        }
+
+        if (browserAPI?.storage?.local) {
+          await new Promise(r => browserAPI.storage.local.set({
+            soro_user: data.user,
+            authToken: data.token || ''
+          }, r));
+          if (browserAPI.runtime?.sendMessage) {
+            browserAPI.runtime.sendMessage({ type: 'SYNC_USER_SESSION', user: data.user });
+          }
+        } else {
+          localStorage.setItem('soro_user', JSON.stringify(data.user));
+        }
+
+        showViewerAuthNotice(`✓ Registered successfully! Welcome, ${data.user.displayName}!`, false);
+        currentUser = data.user;
+        loadLocalData();
+      } catch (err) {
+        showViewerAuthNotice(err.message || 'Registration failed', true);
+      } finally {
+        if (viewerRegisterBtn) {
+          viewerRegisterBtn.disabled = false;
+          viewerRegisterBtn.textContent = 'Register';
+        }
+      }
+    });
+
+    // Connect via Google Cloud / Dashboard
+    viewerGoogleBtn?.addEventListener('click', async () => {
+      let baseUrl = window.location.protocol.startsWith('http') ? window.location.origin : 'http://localhost:3000';
+      if (browserAPI?.storage?.local) {
+        const stored = await new Promise(r => browserAPI.storage.local.get(['dashboardUrl'], r));
+        if (stored?.dashboardUrl) baseUrl = stored.dashboardUrl;
+      }
+      baseUrl = baseUrl.replace(/\/+$/, '');
+
+      if (browserAPI?.tabs?.create) {
+        browserAPI.tabs.create({ url: baseUrl });
+      } else {
+        window.open(baseUrl, '_blank');
+      }
+      showViewerAuthNotice('Opened SoroTrack dashboard. Sign in with Google Cloud there, and return here.', false);
+    });
   }
 
   // Initialize
   document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     loadLocalData();
+
+    // Automatically re-render when Step 2 sync updates local JSON
+    if (browserAPI && browserAPI.storage && browserAPI.storage.onChanged) {
+      browserAPI.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName === 'local' && changes.soro_history_json) {
+          loadLocalData();
+        }
+      });
+    }
   });
 
 })();

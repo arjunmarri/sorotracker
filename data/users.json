@@ -1,0 +1,21 @@
+[
+  {
+    "id": "user_admin_arjun",
+    "email": "arjun.marri@gmail.com",
+    "displayName": "Arjun Marri",
+    "role": "admin",
+    "status": "active",
+    "createdAt": "2026-09-27T18:07:04.154Z",
+    "lastLoginAt": "2026-09-27T18:07:04.154Z"
+  },
+  {
+    "id": "user_1790535106238",
+    "email": "testuser@example.com",
+    "displayName": "Test User",
+    "photoURL": "",
+    "role": "viewer",
+    "status": "active",
+    "createdAt": "2026-09-27T18:51:46.238Z",
+    "lastLoginAt": "2026-09-27T18:51:46.245Z"
+  }
+]

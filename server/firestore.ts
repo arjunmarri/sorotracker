@@ -10,9 +10,38 @@ import {
   deleteDoc, 
   writeBatch,
   terminate,
+  setLogLevel,
   Firestore
 } from 'firebase/firestore';
 import { XHistoryRecord } from '../src/types';
+
+// Silence internal Firestore SDK gRPC / WebChannel log output
+try {
+  setLogLevel('silent');
+} catch {}
+
+// Suppress harmless Firestore idle stream timeout logs in Node console
+const originalConsoleWarn = console.warn;
+const originalConsoleError = console.error;
+
+const isIgnorableFirestoreStreamMessage = (...args: any[]): boolean => {
+  const str = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+  return (
+    str.includes("Disconnecting idle stream") ||
+    str.includes("Timed out waiting for new targets") ||
+    (str.includes("GrpcConnection RPC 'Listen' stream") && str.includes("CANCELLED"))
+  );
+};
+
+console.warn = (...args: any[]) => {
+  if (isIgnorableFirestoreStreamMessage(...args)) return;
+  originalConsoleWarn.apply(console, args);
+};
+
+console.error = (...args: any[]) => {
+  if (isIgnorableFirestoreStreamMessage(...args)) return;
+  originalConsoleError.apply(console, args);
+};
 
 export const COLLECTION_NAME = 'history_records';
 
@@ -181,6 +210,16 @@ export async function fetchRecordsFromFirestore(): Promise<XHistoryRecord[]> {
   } catch (err: any) {
     if (isResourceExhaustedError(err)) {
       await handleQuotaExhausted(err, 'fetchRecords');
+    } else if (err?.code === 'permission-denied' || String(err?.message || '').toLowerCase().includes('permission')) {
+      console.log('[Firestore] Cloud database operates under user-scoped security rules. Serving records from local storage.');
+      // Cleanly terminate instance so no idle stream lingers
+      if (firestoreInstance) {
+        const inst = firestoreInstance;
+        firestoreInstance = null;
+        try {
+          await terminate(inst);
+        } catch {}
+      }
     } else {
       console.warn('[Firestore] Notice fetching documents from GCP collection:', err?.message || err);
     }

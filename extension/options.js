@@ -14,8 +14,54 @@ document.addEventListener('DOMContentLoaded', () => {
   const testBtn = document.getElementById('test-btn');
   const statusMsg = document.getElementById('status-msg');
 
-  // Load current values
-  browserAPI.storage.local.get(['dashboardUrl', 'authToken', 'autoSync', 'syncIntervalSec'], (res) => {
+  // Account elements
+  const optionsAccountStatus = document.getElementById('options-account-status');
+  const optionsAccountInfo = document.getElementById('options-account-info');
+  const optionsUserEmail = document.getElementById('options-user-email');
+  const optionsUserRole = document.getElementById('options-user-role');
+  const optionsAccountLogoutBtn = document.getElementById('options-account-logout-btn');
+  const optionsAccountLoginForm = document.getElementById('options-account-login-form');
+  const optionsLoginEmail = document.getElementById('options-login-email');
+  const optionsLoginPassword = document.getElementById('options-login-password');
+  const optionsAccountLoginBtn = document.getElementById('options-account-login-btn');
+  const optionsAccountRegisterBtn = document.getElementById('options-account-register-btn');
+  const optionsAccountGoogleBtn = document.getElementById('options-account-google-btn');
+  const optionsAuthMsg = document.getElementById('options-auth-msg');
+
+  function updateOptionsAccountUI(user) {
+    if (user && (user.id || user.email)) {
+      if (optionsAccountStatus) {
+        optionsAccountStatus.textContent = '● Connected';
+        optionsAccountStatus.style.color = '#10b981';
+      }
+      if (optionsAccountInfo) optionsAccountInfo.style.display = 'flex';
+      if (optionsAccountLoginForm) optionsAccountLoginForm.style.display = 'none';
+      if (optionsUserEmail) optionsUserEmail.textContent = user.email;
+      if (optionsUserRole) optionsUserRole.textContent = user.role || 'User';
+    } else {
+      if (optionsAccountStatus) {
+        optionsAccountStatus.textContent = '○ Not Connected';
+        optionsAccountStatus.style.color = '#94a3b8';
+      }
+      if (optionsAccountInfo) optionsAccountInfo.style.display = 'none';
+      if (optionsAccountLoginForm) optionsAccountLoginForm.style.display = 'block';
+    }
+  }
+
+  function showOptionsNotice(msg, isErr = false) {
+    if (!optionsAuthMsg) return;
+    optionsAuthMsg.style.display = 'block';
+    optionsAuthMsg.style.background = isErr ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)';
+    optionsAuthMsg.style.border = `1px solid ${isErr ? 'rgba(239, 68, 68, 0.4)' : 'rgba(16, 185, 129, 0.4)'}`;
+    optionsAuthMsg.style.color = isErr ? '#fca5a5' : '#a7f3d0';
+    optionsAuthMsg.innerHTML = msg;
+    setTimeout(() => {
+      if (optionsAuthMsg) optionsAuthMsg.style.display = 'none';
+    }, 5000);
+  }
+
+  // Load current values including user account
+  browserAPI.storage.local.get(['dashboardUrl', 'authToken', 'soro_user', 'autoSync', 'syncIntervalSec'], (res) => {
     if (res) {
       if (res.dashboardUrl) dashboardUrlInput.value = res.dashboardUrl;
       if (res.authToken) authTokenInput.value = res.authToken;
@@ -25,7 +71,122 @@ document.addEventListener('DOMContentLoaded', () => {
         autoSyncInput.checked = false;
       }
       if (res.syncIntervalSec) syncIntervalSecInput.value = res.syncIntervalSec;
+      updateOptionsAccountUI(res.soro_user || null);
     }
+  });
+
+  // Account login in options
+  optionsAccountLoginBtn?.addEventListener('click', async () => {
+    const email = optionsLoginEmail?.value ? optionsLoginEmail.value.trim() : '';
+    const password = optionsLoginPassword?.value ? optionsLoginPassword.value.trim() : '';
+    const dashUrl = (dashboardUrlInput?.value || 'http://localhost:3000').replace(/\/+$/, '');
+
+    if (!email) {
+      showOptionsNotice('Please enter an email address.', true);
+      return;
+    }
+
+    optionsAccountLoginBtn.disabled = true;
+    optionsAccountLoginBtn.textContent = 'Signing in...';
+
+    try {
+      const res = await fetch(`${dashUrl}/api/auth/extension-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Login failed');
+
+      const updates = { soro_user: data.user };
+      if (data.token) {
+        updates.authToken = data.token;
+        if (authTokenInput) authTokenInput.value = data.token;
+      }
+
+      browserAPI.storage.local.set(updates, () => {
+        updateOptionsAccountUI(data.user);
+        showOptionsNotice(`✓ Connected as ${data.user.email}!`, false);
+        if (browserAPI.runtime?.sendMessage) {
+          browserAPI.runtime.sendMessage({ type: 'SYNC_USER_SESSION', user: data.user });
+        }
+      });
+    } catch (err) {
+      showOptionsNotice(err.message || 'Login failed', true);
+    } finally {
+      if (optionsAccountLoginBtn) {
+        optionsAccountLoginBtn.disabled = false;
+        optionsAccountLoginBtn.textContent = 'Sign In';
+      }
+    }
+  });
+
+  // Account register in options
+  optionsAccountRegisterBtn?.addEventListener('click', async () => {
+    const email = optionsLoginEmail?.value ? optionsLoginEmail.value.trim() : '';
+    const password = optionsLoginPassword?.value ? optionsLoginPassword.value.trim() : '';
+    const dashUrl = (dashboardUrlInput?.value || 'http://localhost:3000').replace(/\/+$/, '');
+
+    if (!email) {
+      showOptionsNotice('Please enter an email address.', true);
+      return;
+    }
+
+    optionsAccountRegisterBtn.disabled = true;
+    optionsAccountRegisterBtn.textContent = 'Registering...';
+
+    try {
+      const res = await fetch(`${dashUrl}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, displayName: email.split('@')[0] })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Registration failed');
+
+      const updates = { soro_user: data.user };
+      if (data.token) {
+        updates.authToken = data.token;
+        if (authTokenInput) authTokenInput.value = data.token;
+      }
+
+      browserAPI.storage.local.set(updates, () => {
+        updateOptionsAccountUI(data.user);
+        showOptionsNotice(`✓ Registered successfully!`, false);
+        if (browserAPI.runtime?.sendMessage) {
+          browserAPI.runtime.sendMessage({ type: 'SYNC_USER_SESSION', user: data.user });
+        }
+      });
+    } catch (err) {
+      showOptionsNotice(err.message || 'Registration failed', true);
+    } finally {
+      if (optionsAccountRegisterBtn) {
+        optionsAccountRegisterBtn.disabled = false;
+        optionsAccountRegisterBtn.textContent = 'Register';
+      }
+    }
+  });
+
+  // Google connect in options
+  optionsAccountGoogleBtn?.addEventListener('click', () => {
+    const dashUrl = (dashboardUrlInput?.value || 'http://localhost:3000').replace(/\/+$/, '');
+    if (browserAPI.tabs?.create) {
+      browserAPI.tabs.create({ url: dashUrl });
+    } else {
+      window.open(dashUrl, '_blank');
+    }
+    showOptionsNotice('Opened SoroTrack dashboard. Sign in with Google Cloud there to link automatically.', false);
+  });
+
+  // Logout in options
+  optionsAccountLogoutBtn?.addEventListener('click', () => {
+    browserAPI.storage.local.remove(['soro_user'], () => {
+      updateOptionsAccountUI(null);
+      if (browserAPI.runtime?.sendMessage) {
+        browserAPI.runtime.sendMessage({ type: 'USER_LOGOUT' });
+      }
+      showOptionsNotice('Signed out of SoroTrack account.', false);
+    });
   });
 
   saveBtn.addEventListener('click', () => {
@@ -455,5 +616,48 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       window.open(viewerUrl, '_blank', 'width=1320,height=880,resizable=yes,scrollbars=yes');
     }
+  });
+
+  // Version Check & Updates
+  const optionsInstalledVersion = document.getElementById('options-installed-version');
+  const optionsLatestVersion = document.getElementById('options-latest-version');
+  const optionsCheckUpdateBtn = document.getElementById('options-check-update-btn');
+  const optionsUpgradeAlert = document.getElementById('options-upgrade-alert');
+  const optionsAlertVersion = document.getElementById('options-alert-version');
+  const optionsUpgradeNotes = document.getElementById('options-upgrade-notes');
+  const optionsDownloadUpgradeBtn = document.getElementById('options-download-upgrade-btn');
+
+  const installedVer = (browserAPI.runtime.getManifest && browserAPI.runtime.getManifest().version) || '1.1.0';
+  if (optionsInstalledVersion) optionsInstalledVersion.textContent = `v${installedVer}`;
+
+  function checkVersionInOptions() {
+    if (optionsLatestVersion) optionsLatestVersion.textContent = 'Checking...';
+    browserAPI.runtime.sendMessage({ type: 'CHECK_VERSION' }, (res) => {
+      if (res && res.success) {
+        if (optionsLatestVersion) {
+          optionsLatestVersion.textContent = `v${res.latestVersion}` + (res.isOutdated ? ' (Upgrade Available)' : ' (Up to date)');
+          optionsLatestVersion.style.color = res.isOutdated ? '#f59e0b' : '#10b981';
+        }
+        if (res.isOutdated) {
+          if (optionsUpgradeAlert) optionsUpgradeAlert.style.display = 'block';
+          if (optionsAlertVersion) optionsAlertVersion.textContent = `v${res.latestVersion}`;
+          if (optionsUpgradeNotes) optionsUpgradeNotes.textContent = res.releaseNotes || 'New features and fixes are ready.';
+        } else {
+          if (optionsUpgradeAlert) optionsUpgradeAlert.style.display = 'none';
+        }
+      } else {
+        if (optionsLatestVersion) {
+          optionsLatestVersion.textContent = 'Could not reach server';
+          optionsLatestVersion.style.color = '#ef4444';
+        }
+      }
+    });
+  }
+
+  optionsCheckUpdateBtn?.addEventListener('click', checkVersionInOptions);
+  checkVersionInOptions();
+
+  optionsDownloadUpgradeBtn?.addEventListener('click', () => {
+    browserAPI.runtime.sendMessage({ type: 'DOWNLOAD_UPGRADE' });
   });
 });

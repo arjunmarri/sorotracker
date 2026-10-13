@@ -162,7 +162,7 @@ export const SummarySection: React.FC<SummarySectionProps> = ({
                   </div>
                 )}
 
-                {summary.curatedLinks && summary.curatedLinks.length > 0 && (
+                {Array.isArray(summary.curatedLinks) && summary.curatedLinks.length > 0 && (
                   <div className="pt-2">
                     <h3 className="text-xs font-mono uppercase tracking-wider text-slate-500 mb-2 font-semibold">
                       Curated High-Value Links

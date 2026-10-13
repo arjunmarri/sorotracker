@@ -186,7 +186,7 @@ export const TrendView: React.FC<TrendViewProps> = ({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {topicClusters.slice(0, 6).map(cluster => (
+            {(topicClusters || []).slice(0, 6).map(cluster => (
               <div
                 key={cluster.id}
                 onClick={() => {

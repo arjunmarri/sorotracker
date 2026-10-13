@@ -29,9 +29,12 @@ import {
   Tag,
   Sliders,
   HelpCircle,
-  Download
+  Download,
+  Monitor,
+  Apple,
+  Zap
 } from 'lucide-react';
-import { UserProfile, UserRole, UserStatus, SiteSettings, SiteTheme, ContentFilterOption, ContentFilterCategory } from '../types';
+import { UserProfile, UserRole, UserStatus, SiteSettings, SiteTheme, ContentFilterOption, ContentFilterCategory, ExtensionVersionInfo } from '../types';
 import { AVAILABLE_THEMES } from '../lib/theme';
 import { DEFAULT_CATEGORY_OPTIONS, LABEL_COLOR_PRESETS, setCustomCategories } from '../lib/contentFilter';
 
@@ -44,6 +47,7 @@ interface AdminPanelProps {
   settings: SiteSettings;
   onUpdateSettings: (newSettings: Partial<SiteSettings>) => Promise<void>;
   onThemeChange: (theme: SiteTheme) => void;
+  versionInfo?: ExtensionVersionInfo | null;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -52,7 +56,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   currentUser,
   settings,
   onUpdateSettings,
-  onThemeChange
+  onThemeChange,
+  versionInfo
 }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('users');
   
@@ -915,17 +920,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 {u.photoURL ? (
                                   <img 
                                     src={u.photoURL} 
-                                    alt={u.displayName || u.email} 
+                                    alt={u.displayName || u.email || 'User'} 
                                     className="w-7 h-7 rounded-full object-cover border border-stone-200"
                                   />
                                 ) : (
                                   <div className="w-7 h-7 rounded-full bg-stone-200 dark:bg-stone-700 flex items-center justify-center font-bold text-[11px]">
-                                    {(u.displayName || u.email).slice(0, 2).toUpperCase()}
+                                    {((u.displayName || u.email || 'User').slice(0, 2) || 'U').toUpperCase()}
                                   </div>
                                 )}
                                 <div>
                                   <div className="font-semibold text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
-                                    <span>{u.displayName || u.email.split('@')[0]}</span>
+                                    <span>{u.displayName || (u.email ? u.email.split('@')[0] : 'User')}</span>
                                     {isPrimaryAdmin && (
                                       <span className="px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[10px] font-mono">
                                         Owner
@@ -1601,7 +1606,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </div>
 
                       {/* Footer: Keywords tags */}
-                      {cat.keywords && cat.keywords.length > 0 && (
+                      {Array.isArray(cat.keywords) && cat.keywords.length > 0 && (
                         <div className="pt-2 border-t border-stone-100 dark:border-stone-800/80 flex items-center gap-1 flex-wrap">
                           <span className="text-[9px] font-mono uppercase text-stone-400">Keywords:</span>
                           {cat.keywords.slice(0, 5).map((kw, i) => (
@@ -1927,47 +1932,133 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   The extension package comes bundled with your server endpoint (<code className="px-1 py-0.5 rounded bg-slate-100 dark:bg-stone-800 font-mono text-[11px]">{webhookUrl.replace('/api/sync', '')}</code>) and your secure sync token.
                 </p>
 
+                {/* 1-Click OS Automated Installers */}
+                {/* 1-Click OS Automated Installers */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                  <a
+                    id="admin-download-windows-installer"
+                    href="/api/extension/installer?os=windows"
+                    download={`sorotrack-installer-windows-v${versionInfo?.latestVersion || '1.1.0'}.zip`}
+                    className="flex items-center justify-between p-3 rounded-lg border border-emerald-500/40 bg-emerald-50/50 hover:bg-emerald-100/70 dark:bg-emerald-950/20 dark:hover:bg-emerald-900/30 transition group"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-md bg-emerald-600 text-white shadow-2xs">
+                        <Monitor className="w-4 h-4" />
+                      </div>
+                      <div className="text-left">
+                        <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                          Windows Installer
+                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-200 text-emerald-900 font-bold">Auto</span>
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-stone-400 block truncate max-w-[130px]">
+                          sorotrack-windows.zip
+                        </span>
+                      </div>
+                    </div>
+                    <Download className="w-4 h-4 text-emerald-600 dark:text-emerald-400 group-hover:translate-y-0.5 transition shrink-0" />
+                  </a>
+
+                  <a
+                    id="admin-download-mac-installer"
+                    href="/api/extension/installer?os=mac"
+                    download={`sorotrack-installer-mac-v${versionInfo?.latestVersion || '1.1.0'}.zip`}
+                    className="flex items-center justify-between p-3 rounded-lg border border-purple-500/40 bg-purple-50/50 hover:bg-purple-100/70 dark:bg-purple-950/20 dark:hover:bg-purple-900/30 transition group"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-md bg-purple-600 text-white shadow-2xs">
+                        <Apple className="w-4 h-4" />
+                      </div>
+                      <div className="text-left">
+                        <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                          macOS Installer
+                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-purple-200 text-purple-900 font-bold">Auto</span>
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-stone-400 block truncate max-w-[130px]">
+                          sorotrack-mac.zip
+                        </span>
+                      </div>
+                    </div>
+                    <Download className="w-4 h-4 text-purple-600 dark:text-purple-400 group-hover:translate-y-0.5 transition shrink-0" />
+                  </a>
+
+                  <a
+                    id="admin-download-brew-formula"
+                    href="/api/extension/brew/sorotrack.rb"
+                    download="sorotrack.rb"
+                    className="flex items-center justify-between p-3 rounded-lg border border-amber-500/40 bg-amber-50/50 hover:bg-amber-100/70 dark:bg-amber-950/20 dark:hover:bg-amber-900/30 transition group"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-md bg-amber-600 text-white shadow-2xs">
+                        <span className="text-sm">🍺</span>
+                      </div>
+                      <div className="text-left">
+                        <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                          Homebrew Formula
+                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-200 text-amber-900 font-bold">brew</span>
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-stone-400 block truncate max-w-[130px]">
+                          sorotrack.rb
+                        </span>
+                      </div>
+                    </div>
+                    <Download className="w-4 h-4 text-amber-600 dark:text-amber-400 group-hover:translate-y-0.5 transition shrink-0" />
+                  </a>
+                </div>
+
+
+                <div className="pt-1">
+                  <span className="text-[11px] font-mono uppercase text-slate-400 tracking-wider">
+                    Or Individual Browser Unpacked Archives (.zip):
+                  </span>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
                   {/* Microsoft Edge */}
                   <a
                     id="admin-download-edge-ext"
                     href="/api/extension/download?browser=edge"
-                    download="sorotrack-edge.zip"
+                    download={`sorotrack-v${versionInfo?.latestVersion || '1.1.0'}-edge.zip`}
                     className="flex flex-col items-center justify-center p-3 rounded-lg border border-slate-300 dark:border-stone-700 bg-slate-50/70 hover:bg-slate-100/90 dark:bg-stone-800 dark:hover:bg-stone-750 transition text-center group"
                   >
                     <span className="text-xs font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition flex items-center gap-1.5">
                       <Download className="w-3.5 h-3.5" />
                       Microsoft Edge
                     </span>
-                    <span className="text-[10px] text-slate-500 font-mono mt-0.5">sorotrack-edge.zip</span>
+                    <span className="text-[10px] text-slate-500 font-mono mt-0.5">
+                      sorotrack-v{versionInfo?.latestVersion || '1.1.0'}-edge.zip
+                    </span>
                   </a>
 
                   {/* Google Chrome */}
                   <a
                     id="admin-download-chrome-ext"
                     href="/api/extension/download?browser=chrome"
-                    download="sorotrack-chrome.zip"
+                    download={`sorotrack-v${versionInfo?.latestVersion || '1.1.0'}-chrome.zip`}
                     className="flex flex-col items-center justify-center p-3 rounded-lg border border-slate-300 dark:border-stone-700 bg-slate-50/70 hover:bg-slate-100/90 dark:bg-stone-800 dark:hover:bg-stone-750 transition text-center group"
                   >
                     <span className="text-xs font-bold text-slate-900 dark:text-slate-100 group-hover:text-amber-600 transition flex items-center gap-1.5">
                       <Download className="w-3.5 h-3.5" />
                       Google Chrome
                     </span>
-                    <span className="text-[10px] text-slate-500 font-mono mt-0.5">sorotrack-chrome.zip</span>
+                    <span className="text-[10px] text-slate-500 font-mono mt-0.5">
+                      sorotrack-v{versionInfo?.latestVersion || '1.1.0'}-chrome.zip
+                    </span>
                   </a>
 
                   {/* Mozilla Firefox */}
                   <a
                     id="admin-download-firefox-ext"
                     href="/api/extension/download?browser=firefox"
-                    download="sorotrack-firefox.zip"
+                    download={`sorotrack-v${versionInfo?.latestVersion || '1.1.0'}-firefox.zip`}
                     className="flex flex-col items-center justify-center p-3 rounded-lg border border-slate-300 dark:border-stone-700 bg-slate-50/70 hover:bg-slate-100/90 dark:bg-stone-800 dark:hover:bg-stone-750 transition text-center group"
                   >
                     <span className="text-xs font-bold text-slate-900 dark:text-slate-100 group-hover:text-orange-600 transition flex items-center gap-1.5">
                       <Download className="w-3.5 h-3.5" />
                       Mozilla Firefox
                     </span>
-                    <span className="text-[10px] text-slate-500 font-mono mt-0.5">sorotrack-firefox.zip</span>
+                    <span className="text-[10px] text-slate-500 font-mono mt-0.5">
+                      sorotrack-v{versionInfo?.latestVersion || '1.1.0'}-firefox.zip
+                    </span>
                   </a>
                 </div>
               </div>

@@ -14,26 +14,309 @@ const DEFAULT_CONFIG = {
 };
 
 // Listen for installation
-browserAPI.runtime.onInstalled.addListener(() => {
-  console.log('[SoroTrack] Extension successfully installed.');
-  browserAPI.storage.local.get(['dashboardUrl', 'authToken', 'autoSync', 'syncIntervalSec'], (res) => {
+browserAPI.runtime.onInstalled.addListener((details) => {
+  console.log('[SoroTrack] Extension installed/updated:', details?.reason);
+  browserAPI.storage.local.get([
+    'dashboardUrl',
+    'authToken',
+    'autoSync',
+    'syncIntervalSec',
+    'soro_history_json',
+    'soro_first_install_synced'
+  ], (res) => {
     const toSet = {};
     if (!res || !res.dashboardUrl) toSet.dashboardUrl = DEFAULT_CONFIG.dashboardUrl;
     if (!res || res.authToken === undefined) toSet.authToken = DEFAULT_CONFIG.authToken;
     toSet.autoSync = false;
     if (!res || !res.syncIntervalSec) toSet.syncIntervalSec = DEFAULT_CONFIG.syncIntervalSec;
 
-    if (Object.keys(toSet).length > 0) {
-      browserAPI.storage.local.set(toSet);
-    }
+    browserAPI.storage.local.set(toSet, () => {
+      // Check if fresh installation or empty local JSON: download all snippets locally
+      const localHistory = Array.isArray(res?.soro_history_json) ? res.soro_history_json : [];
+      if (localHistory.length === 0 || !res?.soro_first_install_synced) {
+        console.log('[SoroTrack] Fresh installation detected. Initiating initial bootstrap sync to download all snippets locally...');
+        performBootstrapSync();
+      }
+
+      // Proactively check version on installation or update
+      checkExtensionVersionProactively();
+    });
   });
 });
+
+// Proactively check version when browser starts up
+if (browserAPI.runtime.onStartup) {
+  browserAPI.runtime.onStartup.addListener(() => {
+    checkExtensionVersionProactively();
+  });
+}
+
+// Schedule proactive periodic version check every 60 minutes
+if (browserAPI.alarms && browserAPI.alarms.create) {
+  try {
+    browserAPI.alarms.create('soro_check_version', { periodInMinutes: 60 });
+    browserAPI.alarms.onAlarm.addListener((alarm) => {
+      if (alarm.name === 'soro_check_version') {
+        checkExtensionVersionProactively();
+      }
+    });
+  } catch (e) {
+    console.warn('[SoroTrack] Alarms setup warning:', e);
+  }
+}
+
+/**
+ * Compare two semantic version strings (e.g. "1.1.0" vs "1.2.0")
+ * Returns -1 if v1 < v2, 1 if v1 > v2, 0 if equal
+ */
+function compareSemVer(v1, v2) {
+  const p1 = (v1 || '0').split('.').map(n => parseInt(n, 10) || 0);
+  const p2 = (v2 || '0').split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+    const num1 = p1[i] || 0;
+    const num2 = p2[i] || 0;
+    if (num1 > num2) return 1;
+    if (num1 < num2) return -1;
+  }
+  return 0;
+}
+
+/**
+ * Proactively checks the extension version against the SoroTrack server.
+ * Compares installed vs latest version and triggers badge/alerts if upgrade is available.
+ */
+function checkExtensionVersionProactively(callback) {
+  browserAPI.storage.local.get(['dashboardUrl', 'authToken'], (stored) => {
+    const targetBase = (stored?.dashboardUrl || DEFAULT_CONFIG.dashboardUrl).replace(/\/+$/, '');
+    const versionUrl = `${targetBase}/api/extension/version`;
+    const installedVersion = (browserAPI.runtime.getManifest && browserAPI.runtime.getManifest().version) || '1.1.0';
+
+    const headers = {
+      'Accept': 'application/json',
+      'x-extension-version': installedVersion
+    };
+    if (stored?.authToken) {
+      headers['Authorization'] = `Bearer ${stored.authToken}`;
+      headers['x-api-key'] = stored.authToken;
+    }
+
+    fetch(versionUrl, { headers })
+      .then(async (res) => {
+        if (!res.ok) {
+          if (callback) callback({ success: false, installedVersion, error: `HTTP ${res.status}` });
+          return;
+        }
+        const data = await res.json();
+        const latestVersion = data.latestVersion || installedVersion;
+        const isOutdated = Boolean(data.isOutdated || (latestVersion && compareSemVer(installedVersion, latestVersion) < 0));
+
+        const versionData = {
+          installedVersion,
+          latestVersion,
+          isOutdated,
+          releaseNotes: data.releaseNotes || 'A new update of SoroTrack is available with improvements and new features.',
+          releaseDate: data.releaseDate || '',
+          downloadUrl: `${targetBase}/api/extension/download?browser=chrome`
+        };
+
+        // Update badge on extension icon to alert user proactively
+        if (browserAPI.action && browserAPI.action.setBadgeText) {
+          browserAPI.action.setBadgeText({ text: isOutdated ? 'NEW' : '' });
+          if (isOutdated && browserAPI.action.setBadgeBackgroundColor) {
+            browserAPI.action.setBadgeBackgroundColor({ color: '#f59e0b' });
+          }
+        }
+
+        browserAPI.storage.local.set({
+          soro_installed_version: installedVersion,
+          soro_latest_version: latestVersion,
+          soro_upgrade_available: isOutdated,
+          soro_upgrade_notes: versionData.releaseNotes,
+          soro_upgrade_download_url: versionData.downloadUrl,
+          soro_last_version_check: new Date().toISOString()
+        });
+
+        console.log(`[SoroTrack Background] Proactive Version Check: Installed v${installedVersion}, Server v${latestVersion}. Upgrade available: ${isOutdated}`);
+        if (callback) callback({ success: true, ...versionData });
+      })
+      .catch((err) => {
+        console.warn('[SoroTrack Background] Proactive version check failed:', err.message);
+        if (callback) callback({ success: false, installedVersion, error: err.message });
+      });
+  });
+}
+
+/**
+ * Automatically downloads all server snippets to local JSON storage.
+ * Used on first install, or when requested by popup / content script / options.
+ */
+function performBootstrapSync(callback) {
+  browserAPI.storage.local.get(['dashboardUrl', 'authToken', 'soro_user', 'soro_history_json'], (stored) => {
+    const targetBase = (stored?.dashboardUrl || DEFAULT_CONFIG.dashboardUrl).replace(/\/+$/, '');
+    const syncEndpoint = targetBase.endsWith('/api/sync') ? targetBase : `${targetBase}/api/sync`;
+    const token = stored?.authToken || '';
+    const user = stored?.soro_user;
+    const extVersion = (browserAPI.runtime.getManifest && browserAPI.runtime.getManifest().version) || '1.1.0';
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'x-extension-version': extVersion
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+      headers['x-api-key'] = token;
+    }
+    if (user) {
+      if (user.id) headers['x-user-id'] = user.id;
+      if (user.email) headers['x-user-email'] = user.email;
+    }
+
+    const existingRecords = Array.isArray(stored?.soro_history_json) ? stored.soro_history_json : [];
+    const clientSnippetIds = existingRecords.map(r => r && r.id).filter(Boolean);
+
+    console.log(`[SoroTrack Background] Starting bootstrap sync to download snippets from ${syncEndpoint} (User: ${user?.email || 'unassigned'})...`);
+
+    fetch(syncEndpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        records: [],
+        clientSnippetIds,
+        clientTotal: existingRecords.length,
+        userId: user?.id,
+        userEmail: user?.email,
+        source: 'first_install_bootstrap',
+        timestamp: new Date().toISOString(),
+        extensionVersion: extVersion
+      })
+    })
+    .then(async (res) => {
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        console.warn(`[SoroTrack Background] Bootstrap sync failed with HTTP ${res.status}:`, errText);
+        if (callback) callback({ success: false, status: res.status, error: errText });
+        return;
+      }
+
+      const data = await res.json();
+      const serverRecords = Array.isArray(data?.serverRecordsToPush)
+        ? data.serverRecordsToPush
+        : (Array.isArray(data?.step2?.serverRecordsToPush) ? data.step2.serverRecordsToPush : []);
+
+      const syncTimestamp = new Date().toISOString();
+      const localMap = new Map();
+      existingRecords.forEach(r => { if (r && r.id) localMap.set(r.id, r); });
+
+      serverRecords.forEach(srvRec => {
+        if (!srvRec || !srvRec.id) return;
+        if (localMap.has(srvRec.id)) {
+          const loc = localMap.get(srvRec.id);
+          loc.syncedAt = srvRec.syncedAt || loc.syncedAt || syncTimestamp;
+          if (srvRec.isBookmarked) loc.isBookmarked = true;
+        } else {
+          localMap.set(srvRec.id, {
+            ...srvRec,
+            syncedAt: srvRec.syncedAt || syncTimestamp
+          });
+        }
+      });
+
+      const updatedHistory = Array.from(localMap.values()).sort((a, b) => {
+        const tA = new Date(a.createdAt || a.scannedAt || 0).getTime();
+        const tB = new Date(b.createdAt || b.scannedAt || 0).getTime();
+        return tB - tA;
+      });
+
+      const updatedSyncedIds = updatedHistory.map(r => r.id);
+
+      browserAPI.storage.local.set({
+        soro_history_json: updatedHistory,
+        soro_synced_ids: updatedSyncedIds,
+        soro_history_count: updatedHistory.length,
+        soro_unsynced_count: 0,
+        soro_sync_status: 'online',
+        soro_first_install_synced: true,
+        soro_last_sync_time: syncTimestamp
+      }, () => {
+        console.log(`[SoroTrack Background] Bootstrap sync complete! Local JSON now has ${updatedHistory.length} snippets (received ${serverRecords.length} from server).`);
+        if (callback) {
+          callback({
+            success: true,
+            totalDownloaded: serverRecords.length,
+            localTotal: updatedHistory.length,
+            hasSameSnippets: Boolean(data.hasSameSnippets)
+          });
+        }
+      });
+    })
+    .catch((err) => {
+      console.warn('[SoroTrack Background] Bootstrap sync network error:', err);
+      if (callback) callback({ success: false, error: err.message });
+    });
+  });
+}
 
 // Handle messages from content script & popup
 browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'PING') {
     sendResponse({ status: 'PONG', time: Date.now() });
     return false;
+  }
+
+  // Handle user session sync from web dashboard or popup
+  if (request.type === 'SYNC_USER_SESSION') {
+    const user = request.user;
+    if (user && (user.id || user.email)) {
+      browserAPI.storage.local.set({ soro_user: user }, () => {
+        console.log('[SoroTrack Background] Stored authenticated user session:', user.email);
+        sendResponse({ success: true, user });
+      });
+    } else {
+      sendResponse({ success: false });
+    }
+    return true;
+  }
+
+  // Handle user logout
+  if (request.type === 'USER_LOGOUT') {
+    browserAPI.storage.local.remove(['soro_user'], () => {
+      console.log('[SoroTrack Background] Cleared user session on logout.');
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
+  if (request.type === 'BOOTSTRAP_SYNC') {
+    performBootstrapSync((res) => {
+      sendResponse(res);
+    });
+    return true;
+  }
+
+  if (request.type === 'GET_VERSION') {
+    const version = (browserAPI.runtime.getManifest && browserAPI.runtime.getManifest().version) || '1.1.0';
+    sendResponse({ success: true, version });
+    return false;
+  }
+
+  if (request.type === 'CHECK_VERSION' || request.type === 'GET_VERSION_INFO') {
+    checkExtensionVersionProactively((res) => {
+      sendResponse(res);
+    });
+    return true;
+  }
+
+  if (request.type === 'DOWNLOAD_UPGRADE') {
+    browserAPI.storage.local.get(['dashboardUrl'], (stored) => {
+      const targetBase = (stored?.dashboardUrl || DEFAULT_CONFIG.dashboardUrl).replace(/\/+$/, '');
+      const downloadUrl = `${targetBase}/api/extension/download?browser=chrome`;
+      if (browserAPI.tabs && browserAPI.tabs.create) {
+        browserAPI.tabs.create({ url: downloadUrl });
+      }
+      sendResponse({ success: true, downloadUrl });
+    });
+    return true;
   }
 
   // Open Standalone Local Offline Viewer in new browser window
@@ -72,39 +355,70 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-    // Execute remote sync call via background script (bypasses webpage CSP on x.com)
+    // Execute remote 2-step sync call via background script (bypasses webpage CSP on x.com)
   if (request.type === 'SYNC_RECORDS') {
     const { endpoint, authToken, records, source, timestamp } = request.payload || {};
     const syncTimestamp = timestamp || new Date().toISOString();
     
-    // Retrieve stored authToken and dashboardUrl if not passed directly
-    browserAPI.storage.local.get(['dashboardUrl', 'authToken'], (stored) => {
+    // Retrieve stored authToken, dashboardUrl, and local JSON history
+    browserAPI.storage.local.get(['dashboardUrl', 'authToken', 'soro_user', 'soro_history_json', 'soro_synced_ids'], (stored) => {
       const targetBase = (endpoint || stored?.dashboardUrl || DEFAULT_CONFIG.dashboardUrl).replace(/\/+$/, '');
       const syncEndpoint = targetBase.endsWith('/api/sync') ? targetBase : `${targetBase}/api/sync`;
       const token = authToken || stored?.authToken || '';
+      const user = stored?.soro_user;
 
+      const extVersion = (browserAPI.runtime.getManifest && browserAPI.runtime.getManifest().version) || '1.1.0';
       const headers = {
         'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'x-extension-version': extVersion
       };
 
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
         headers['x-api-key'] = token;
       }
+      if (user) {
+        if (user.id) headers['x-user-id'] = user.id;
+        if (user.email) headers['x-user-email'] = user.email;
+      }
 
-      const recordsToSend = (records || []).map(r => ({
-        ...r,
-        syncedAt: r.syncedAt || syncTimestamp
-      }));
+      const existingLocalRecords = Array.isArray(stored?.soro_history_json) ? stored.soro_history_json : [];
+      const syncedIdsSet = new Set(stored?.soro_synced_ids || []);
+      const clientSnippetIds = existingLocalRecords.map(r => r && r.id).filter(Boolean);
+
+      // Step 1: Whichever new local JSON data is available on the browser will be sent
+      let recordsToSend = [];
+      if (Array.isArray(records) && records.length > 0) {
+        recordsToSend = records.map(r => ({
+          ...r,
+          userId: r.userId || user?.id,
+          userEmail: r.userEmail || user?.email,
+          syncedAt: r.syncedAt || syncTimestamp
+        }));
+      } else {
+        // Send unsynced local records if none specifically passed
+        const unsynced = existingLocalRecords.filter(r => r && r.id && !syncedIdsSet.has(r.id));
+        recordsToSend = (unsynced.length > 0 ? unsynced : existingLocalRecords).map(r => ({
+          ...r,
+          userId: r.userId || user?.id,
+          userEmail: r.userEmail || user?.email,
+          syncedAt: r.syncedAt || syncTimestamp
+        }));
+      }
 
       fetch(syncEndpoint, {
         method: 'POST',
         headers,
         body: JSON.stringify({
           records: recordsToSend,
+          clientSnippetIds,
+          clientTotal: existingLocalRecords.length,
+          userId: user?.id,
+          userEmail: user?.email,
           source: source || 'extension',
-          timestamp: syncTimestamp
+          timestamp: syncTimestamp,
+          extensionVersion: extVersion
         })
       })
       .then(async (res) => {
@@ -134,40 +448,90 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         const data = await res.json();
         const isQuotaExhausted = Boolean(data?.isQuotaExhausted);
-        
-        // Update syncedAt timestamp in extension local JSON storage
-        browserAPI.storage.local.get(['soro_history_json', 'soro_synced_ids'], (storeRes) => {
-          const updatePayload = {
-            soro_sync_status: isQuotaExhausted ? 'offline' : 'online',
-            soro_quota_exhausted: isQuotaExhausted,
-            soro_last_sync_time: syncTimestamp
-          };
+        const serverRecordsToPush = Array.isArray(data?.serverRecordsToPush) 
+          ? data.serverRecordsToPush 
+          : (Array.isArray(data?.step2?.serverRecordsToPush) ? data.step2.serverRecordsToPush : []);
 
-          if (Array.isArray(recordsToSend) && recordsToSend.length > 0) {
-            const syncedIdsSet = new Set(storeRes?.soro_synced_ids || []);
-            recordsToSend.forEach(r => syncedIdsSet.add(r.id));
-            updatePayload.soro_synced_ids = Array.from(syncedIdsSet);
+        // Step 2: Check server data and local data. If they don't have the same snippets,
+        // push the server data into the browser's local JSON!
+        const localMap = new Map();
+        existingLocalRecords.forEach(item => {
+          if (item && item.id) localMap.set(item.id, { ...item });
+        });
 
-            if (Array.isArray(storeRes?.soro_history_json)) {
-              const recordIdMap = new Map(recordsToSend.map(r => [r.id, r]));
-              storeRes.soro_history_json.forEach(item => {
-                if (recordIdMap.has(item.id)) {
-                  item.syncedAt = syncTimestamp;
-                }
-              });
-              updatePayload.soro_history_json = storeRes.soro_history_json;
-              updatePayload.soro_unsynced_count = Math.max(0, storeRes.soro_history_json.length - updatePayload.soro_synced_ids.length);
+        // 1. Mark outgoing local items as synced
+        recordsToSend.forEach(r => {
+          if (r && r.id) {
+            syncedIdsSet.add(r.id);
+            if (localMap.has(r.id)) {
+              localMap.get(r.id).syncedAt = syncTimestamp;
+            } else {
+              localMap.set(r.id, { ...r, syncedAt: syncTimestamp });
             }
           }
+        });
 
-          browserAPI.storage.local.set(updatePayload);
+        // 2. Push already synced server data into local JSON
+        let newlyPushedToLocalCount = 0;
+        if (serverRecordsToPush.length > 0) {
+          serverRecordsToPush.forEach(srvRec => {
+            if (!srvRec || !srvRec.id) return;
+            syncedIdsSet.add(srvRec.id);
+            if (localMap.has(srvRec.id)) {
+              const localRec = localMap.get(srvRec.id);
+              localRec.syncedAt = srvRec.syncedAt || localRec.syncedAt || syncTimestamp;
+              if (srvRec.isBookmarked && !localRec.isBookmarked) {
+                localRec.isBookmarked = true;
+                localRec.bookmarkedAt = srvRec.bookmarkedAt || syncTimestamp;
+              }
+            } else {
+              localMap.set(srvRec.id, {
+                ...srvRec,
+                syncedAt: srvRec.syncedAt || syncTimestamp
+              });
+              newlyPushedToLocalCount++;
+            }
+          });
+        }
+
+        // Sort descending by creation/scan timestamp
+        const updatedLocalHistory = Array.from(localMap.values()).sort((a, b) => {
+          const tA = new Date(a.createdAt || a.scannedAt || 0).getTime();
+          const tB = new Date(b.createdAt || b.scannedAt || 0).getTime();
+          return tB - tA;
+        });
+
+        const updatedSyncedIds = Array.from(syncedIdsSet);
+        const remainingUnsynced = Math.max(0, updatedLocalHistory.length - updatedSyncedIds.length);
+
+        const updatePayload = {
+          soro_history_json: updatedLocalHistory,
+          soro_synced_ids: updatedSyncedIds,
+          soro_history_count: updatedLocalHistory.length,
+          soro_unsynced_count: remainingUnsynced,
+          soro_sync_status: isQuotaExhausted ? 'offline' : 'online',
+          soro_quota_exhausted: isQuotaExhausted,
+          soro_last_sync_time: syncTimestamp
+        };
+
+        browserAPI.storage.local.set(updatePayload, () => {
+          console.log(`[SoroTrack Background] 2-Step Sync Complete: Sent ${recordsToSend.length} local records; received & merged ${newlyPushedToLocalCount} server records into local JSON.`);
+          checkExtensionVersionProactively();
         });
 
         sendResponse({
           success: true,
           isQuotaExhausted,
+          hasSameSnippets: Boolean(data.hasSameSnippets),
+          pushedToServerCount: recordsToSend.length,
+          pushedToLocalCount: newlyPushedToLocalCount,
+          serverRecordsToPush,
+          step1: data.step1,
+          step2: data.step2,
+          serverTotal: data.serverTotal || (data.total ?? updatedLocalHistory.length),
+          localTotal: updatedLocalHistory.length,
           result: data,
-          total: data.total || (records ? records.length : 0)
+          total: data.total || updatedLocalHistory.length
         });
       })
       .catch((err) => {

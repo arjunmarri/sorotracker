@@ -176,7 +176,7 @@ export const DedicatedCategoryPage: React.FC<DedicatedCategoryPageProps> = ({
   }, [category.id, selectedSubTopic, recordsSearch, sortBy, snippetFeedTab]);
 
   const visibleRecords = useMemo(() => {
-    return displayedRecords.slice(0, visibleCount);
+    return (displayedRecords || []).slice(0, visibleCount);
   }, [displayedRecords, visibleCount]);
 
   useEffect(() => {
