@@ -25,9 +25,16 @@ Small models (3–8B) are fast. Larger ones (14B and up) summarize and filter no
 
 **Other servers:** start the server and use its `/v1` URL in SoroTrack's settings. For example, LM Studio is `http://127.0.0.1:1234/v1`, the llama.cpp server is `http://127.0.0.1:8080/v1` and Jan is `http://127.0.0.1:1337/v1`.
 
-### 2. Build the extension
+### 2. Get the extension
 
-You need [Node.js](https://nodejs.org) 20 or later. The build has no dependencies and works the same on macOS and Windows.
+**Download a ready-made build** from the [`downloads/`](downloads) folder:
+
+- Chrome, Edge, Brave, Arc: [sorotrack-chrome.zip](https://github.com/arjunmarri/sorotracker/raw/2.0/downloads/sorotrack-chrome.zip)
+- Firefox: [sorotrack-firefox.zip](https://github.com/arjunmarri/sorotracker/raw/2.0/downloads/sorotrack-firefox.zip)
+
+Unzip the Chrome build into a folder you'll keep: Chrome loads the extension from that folder. Firefox can load the zip directly.
+
+**Or build it yourself.** You need [Node.js](https://nodejs.org) 20 or later. The build has no dependencies and works the same on macOS and Windows.
 
 ```bash
 npm run build
@@ -37,9 +44,9 @@ This creates `dist/chrome` and `dist/firefox`. Run `npm run package` to also get
 
 ### 3. Load it in your browser
 
-**Chrome, Edge, Brave, Arc:** open `chrome://extensions` (or `edge://extensions`), turn on **Developer mode**, click **Load unpacked** and choose `dist/chrome`.
+**Chrome, Edge, Brave, Arc:** open `chrome://extensions` (or `edge://extensions`), turn on **Developer mode**, click **Load unpacked** and choose the unzipped folder (or `dist/chrome` if you built it).
 
-**Firefox (128+):** open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and choose `dist/firefox/manifest.json`. Temporary add-ons are removed when Firefox restarts. To install it permanently, sign the zip through [addons.mozilla.org](https://addons.mozilla.org/developers/) (it can be unlisted).
+**Firefox (128+):** open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and choose `sorotrack-firefox.zip` (or `dist/firefox/manifest.json` if you built it). Temporary add-ons are removed when Firefox restarts. To install it permanently, sign the zip through [addons.mozilla.org](https://addons.mozilla.org/developers/) (it can be unlisted).
 
 On first install the settings page opens and tests the connection to `http://127.0.0.1:11434`.
 
@@ -88,6 +95,7 @@ test/                  node:test unit tests (LLM client, prompts and parsers, Ma
 npm test          # unit tests
 npm run build     # dist/chrome and dist/firefox
 npm run package   # build plus zips
+npm run downloads # refresh the committed zips in downloads/
 npm run icons     # regenerate the PNG icons
 ```
 

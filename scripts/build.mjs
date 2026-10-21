@@ -3,7 +3,8 @@
 //   node scripts/build.mjs            -> dist/chrome and dist/firefox
 //   node scripts/build.mjs chrome     -> dist/chrome only
 //   node scripts/build.mjs --zip      -> also dist/sorotrack-<browser>-<version>.zip
-import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+//   node scripts/build.mjs --downloads -> also downloads/sorotrack-<browser>.zip (committed, stable links)
+import { copyFileSync, cpSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateRawSync } from 'node:zlib';
@@ -14,11 +15,12 @@ const DIST = join(ROOT, 'dist');
 const BROWSERS = ['chrome', 'firefox'];
 
 const args = process.argv.slice(2);
-const zip = args.includes('--zip');
+const downloads = args.includes('--downloads');
+const zip = downloads || args.includes('--zip');
 const targets = args.filter((a) => BROWSERS.includes(a));
-const unknown = args.filter((a) => a !== '--zip' && !BROWSERS.includes(a));
+const unknown = args.filter((a) => !['--zip', '--downloads'].includes(a) && !BROWSERS.includes(a));
 if (unknown.length) {
-  console.error(`Unknown argument(s): ${unknown.join(', ')}. Use: chrome, firefox, --zip`);
+  console.error(`Unknown argument(s): ${unknown.join(', ')}. Use: chrome, firefox, --zip, --downloads`);
   process.exit(1);
 }
 
@@ -117,5 +119,11 @@ for (const browser of targets.length ? targets : BROWSERS) {
     const zipFile = join(DIST, `sorotrack-${browser}-${base.version}.zip`);
     writeZip(zipFile, out);
     console.log(`Packed ${relative(ROOT, zipFile)}`);
+    if (downloads) {
+      mkdirSync(join(ROOT, 'downloads'), { recursive: true });
+      const published = join(ROOT, 'downloads', `sorotrack-${browser}.zip`);
+      copyFileSync(zipFile, published);
+      console.log(`Copied to ${relative(ROOT, published)}`);
+    }
   }
 }
