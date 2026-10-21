@@ -1,113 +1,108 @@
 # SoroTrack
 
-**SoroTrack** is an intelligent personal browsing archive and reading list dashboard designed to capture, organize, analyze, and synthesize content from your web reading and social feeds (such as 𝕏 / Twitter history and bookmarks). 
+A private assistant on every web page, powered by **your local LLM**. SoroTrack is a browser extension for Chrome (and Chromium browsers such as Edge and Brave) and Firefox, on macOS and Windows. It talks only to a model server on your own machine: [Ollama](https://ollama.com), LM Studio, llama.cpp, Jan, or any OpenAI-compatible server.
 
-Equipped with cross-browser extensions (Microsoft Edge, Google Chrome, Mozilla Firefox), local and cloud-backed persistence via Google Cloud Firestore, automatic domain and link extraction, customizable content labels, and server-side Gemini AI intelligence, SoroTrack transforms ephemeral browsing into a structured, searchable, high-signal knowledge base.
+Click the ✦ button in the corner of any page to:
 
----
+- **Summarize** the page: a one-line TL;DR, key points, and anything worth noting.
+- **Ask** follow-up questions about the page in a chat.
+- **Save snippet**: saves your selection (or the whole page) to a local library. The model writes a title, a summary and tags.
+- **Remove AI slop**: hides filler, machine-sounding padding and engagement bait, so the real content stays. You can restore the page or show the hidden parts dimmed. On feeds (X, Reddit, forums) it judges each post. On articles it judges each paragraph.
 
-## 🌟 Key Features
+Page text never leaves your computer. There are no accounts, no analytics and no cloud.
 
-### 1. Cross-Browser Ingestion & Extension
-- **Multi-Browser Support**: Dedicated builds for **Microsoft Edge**, **Google Chrome**, and **Mozilla Firefox**.
-- **Pre-Configured Packages**: Downloadable 1-click `.zip` packages automatically bundled with your live backend URL and authentication token.
-- **Floating In-Page HUD**: On-page controls for automatic scrolling, audit history, anonymous mode, and local JSON inspection.
-- **Authenticated Sync Pipeline**: Direct ingestion through `/api/sync` secured via token authentication (`Bearer` or `x-api-key`).
+## Install
 
-### 2. High-Signal Content Filtering & Labels
-- **Noise Suppression**: Filter out noise (memes, ragebait, pitches, polemics) to focus on high-signal technical and educational content.
-- **Dynamic Category Management**: Admin-configurable taxonomy with full CRUD capabilities (create, rename, recolor, delete) for content labels.
-- **Extracted Reference Domains**: Automatically parses and groups linked sources (e.g., `github.com`, `arxiv.org`, `youtube.com`, `substack.com`).
+### 1. Run a local model
 
-### 3. Topic Clustering & AI Synthesis
-- **Intelligent Clustering**: Automatically groups related snippets into semantic topics and thematic clusters.
-- **AI Executive Briefing**: Powered by Google Gemini (`@google/genai`) on the server side to produce contextual briefings, trends analysis, and key takeaways on demand.
-- **Dedicated Category Hubs**: Deep-dive views with sub-topic exploration, read/caught-up tracking, and classification guidelines.
+**Ollama (recommended):** install it from [ollama.com](https://ollama.com) (macOS or Windows), then pull a model:
 
-### 4. Feed, Reading List & Analytics
-- **Read Later List**: Save snippets with a single click to a persistent 'to-read' list (persisted in `localStorage`), with dedicated filtered views and quick count indicators.
-- **Weekly Ingestion Activity**: Interactive Recharts visualization depicting snippet collection volume per day over the last 7 days, located directly in the Summary & Trends section.
-- **Clean Dashboard & Recycle Bin**: Quickly tidy your feed when filtering by authors, domains, or labels. Select all or pick individual snippets to send to the Recycled Bin, with options to restore or permanently purge.
-- **Streamlined Sorting**: Defaulted to "Newest scanned" for chronological ingestion order, with curated options: *Latest by Date*, *Oldest by Date*, *Newest scanned*, *Most likes*, and *Most reposts*.
-- **Quick Toggles**: Filter instantly by media presence (images/video), external reference links, or Read Later items.
-- **Keyboard Shortcuts**: Press `/` to focus instant full-text search across tweet content, author handles, and link titles.
-- **Reading Comfort**: Multiple reader font size presets (`sm`, `md`, `lg`) and responsive view modes (compact vs. card grid).
-
-### 5. Resilient Cloud & Offline Architecture
-- **Dual-Layer Persistence**: Real-time cloud sync with Google Cloud Firestore, backed by local disk safeguarding if cloud quotas are reached.
-- **Data Portability**: Full JSON export (`/api/export/json`) and drag-and-drop JSON import for offline backups and migration.
-- **Role-Based Admin Panel**: Manage user accounts, customize site branding, configure ingestion webhooks, and inspect extension source code directly in the browser.
-
----
-
-## 🏗️ Technology Stack
-
-| Layer | Technologies |
-|---|---|
-| **Frontend** | React 19, TypeScript, Tailwind CSS v4, Motion, Lucide Icons |
-| **Backend / Server** | Node.js, Express, tsx, esbuild |
-| **Database & Cloud** | Google Cloud Firestore, Firebase Authentication |
-| **AI & LLM** | Google Gemini API via `@google/genai` (Server-Side Proxy) |
-| **Extensions** | WebExtensions API (Manifest V3 for Edge & Chrome, Manifest V2/V3 for Firefox) |
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-- Node.js 20+ installed
-- npm or yarn
-
-### Installation
-1. Clone the repository or open the project directory:
-   ```bash
-   cd sorotrack
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-### Environment Variables
-Configure your environment variables in `.env` (refer to `.env.example`):
-```env
-# Google Gemini AI Key for server-side summarization
-GEMINI_API_KEY=your_gemini_api_key_here
-
-# Optional: Custom Sync Secret Token (generated automatically if omitted)
-SORO_SYNC_TOKEN=your_secure_sync_token
-```
-
-### Running Locally
-Start the unified full-stack development server (Express backend + Vite frontend):
 ```bash
-npm run dev
+ollama pull llama3.2
 ```
-The application will be accessible at: `http://localhost:3000`.
 
-### Production Build
-Compile both the client-side SPA bundle and the bundled Node CommonJS server:
+Small models (3–8B) are fast. Larger ones (14B and up) summarize and filter noticeably better.
+
+**Other servers:** start the server and use its `/v1` URL in SoroTrack's settings. For example, LM Studio is `http://127.0.0.1:1234/v1`, the llama.cpp server is `http://127.0.0.1:8080/v1` and Jan is `http://127.0.0.1:1337/v1`.
+
+### 2. Build the extension
+
+You need [Node.js](https://nodejs.org) 20 or later. The build has no dependencies and works the same on macOS and Windows.
+
 ```bash
 npm run build
-npm run start
 ```
 
----
+This creates `dist/chrome` and `dist/firefox`. Run `npm run package` to also get zip files in `dist/`.
 
-## 🧩 Installing the Browser Extension
+### 3. Load it in your browser
 
-1. Open SoroTrack at `http://localhost:3000` (or your deployed URL).
-2. Click the **Extension** button in the header (or navigate to **Admin Panel > Cloud Pipeline**).
-3. Select your browser:
-   - **Microsoft Edge**: Download `sorotrack-edge.zip` → Open `edge://extensions` → Enable **Developer mode** → Click **Load unpacked**.
-   - **Google Chrome / Brave**: Download `sorotrack-chrome.zip` → Open `chrome://extensions` → Enable **Developer mode** → Click **Load unpacked**.
-   - **Mozilla Firefox**: Download `sorotrack-firefox.zip` → Open `about:debugging#/runtime/this-firefox` → Click **Load Temporary Add-on...** and select `manifest.json`.
-4. Navigate to `https://x.com/i/history` or your bookmarks. The floating SoroTrack HUD will appear to sync your reading history directly to your archive.
+**Chrome, Edge, Brave, Arc:** open `chrome://extensions` (or `edge://extensions`), turn on **Developer mode**, click **Load unpacked** and choose `dist/chrome`.
 
----
+**Firefox (128+):** open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and choose `dist/firefox/manifest.json`. Temporary add-ons are removed when Firefox restarts. To install it permanently, sign the zip through [addons.mozilla.org](https://addons.mozilla.org/developers/) (it can be unlisted).
 
-## 🔒 Security & Privacy
+On first install the settings page opens and tests the connection to `http://127.0.0.1:11434`.
 
-- **Server-Side API Keys**: The Gemini API key is never exposed to the client or browser. All LLM operations run via authenticated `/api/ai/*` server endpoints.
-- **Protected Remote Ingestion**: The `/api/sync` webhook strictly verifies tokens via `Authorization: Bearer <token>` or `x-api-key` headers.
-- **Private Archiving**: SoroTrack stores your history exclusively in your provisioned Firestore database or secure local cache without third-party tracking.
+## Using it
+
+| Where | How |
+|---|---|
+| Any page | The ✦ button in the bottom-right corner |
+| Keyboard | <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd> opens or closes the assistant (Option on a Mac). You can change it at `chrome://extensions/shortcuts`. |
+| Right-click menu | *Save selection as snippet*, *Summarize this page*, *Remove AI slop from this page* |
+| Toolbar icon | Connection status, quick actions, snippets and settings |
+
+Saved snippets are listed on the **Snippets** page, where you can search, filter by tag, copy, delete, and export to JSON or Markdown (and import JSON).
+
+You can hide the button on a site from the assistant's **⋯** menu. Settings let you change the server URL, model, temperature, context window, how much page text to send, and whether removed slop is hidden or dimmed.
+
+## How it works
+
+```
+ web page ──► content scripts (assistant UI in a closed shadow root, page text extraction)
+                 │  long-lived port: chat request ▸ streamed tokens
+                 ▼
+          background worker ──► http://127.0.0.1:11434  (Ollama /api/chat, or /v1/chat/completions)
+```
+
+- All model requests come from the background worker, so page Content Security Policies and mixed-content rules don't block them.
+- **Ollama and 403 errors:** Ollama rejects requests from `chrome-extension://` and `moz-extension://` origins by default. SoroTrack rewrites the `Origin` header to the server's own origin, which Ollama always accepts. This applies only to the extension's own background requests: Chrome uses a session `declarativeNetRequest` rule and Firefox uses `webRequest`. Requests from web pages are never changed, so you don't need to set `OLLAMA_ORIGINS`.
+- Reasoning models (Qwen3, DeepSeek-R1, Gemma 4…) run with thinking turned off for speed, and any `<think>` output is removed. You can turn thinking on in settings.
+- Settings and snippets are stored in `chrome.storage.local` on your machine (one key per snippet, so saves from several tabs can't overwrite each other).
+
+## Development
+
+```
+extension/
+  manifest.json        base manifest; the build writes per-browser variants
+  background/          sw.js (Chrome entry) · background.js (routing, menus, Origin rewrite) · llm.js (Ollama + OpenAI-compatible client)
+  content/             assistant.js (panel UI and tasks) · extract.js (readable text, content blocks) · styles.js
+  shared/              config.js (settings) · prompts.js · markdown.js (safe renderer) · snippets.js
+  pages/               popup, options and snippets pages
+  icons/               generated by scripts/make-icons.mjs
+scripts/build.mjs      copies extension/ to dist/<browser>/ with the right manifest; --zip packs it
+test/                  node:test unit tests (LLM client, prompts and parsers, Markdown, manifest wiring)
+```
+
+```bash
+npm test          # unit tests
+npm run build     # dist/chrome and dist/firefox
+npm run package   # build plus zips
+npm run icons     # regenerate the PNG icons
+```
+
+After editing, run `npm run build` and click **Reload** on the extension card (or reload the temporary add-on in Firefox).
+
+## Troubleshooting
+
+- **"Can't reach http://127.0.0.1:11434"**: Ollama isn't running. Open the app (macOS menu bar or Windows tray), or run `ollama serve`.
+- **No models**: run `ollama pull llama3.2` (or any chat model).
+- **Still getting 403 Forbidden** (for example from a proxy in front of Ollama): allow extension origins, then quit and restart Ollama.
+  - macOS: `launchctl setenv OLLAMA_ORIGINS "chrome-extension://*,moz-extension://*"`
+  - Windows: `setx OLLAMA_ORIGINS "chrome-extension://*,moz-extension://*"`
+- **The button doesn't appear**: browser pages (`chrome://`, the extension stores, PDFs) can't run extensions. On a normal site, reload the tab after installing.
+- **Slow first answer**: the model is loading into memory. Later requests are much faster.
+
+## Earlier versions
+
+SoroTrack 1.x was an 𝕏-history archive with a React dashboard, an Express server, Firestore and Gemini. It is still on the `main` branch. Version 2.0 replaces all of that with this standalone, fully local extension.

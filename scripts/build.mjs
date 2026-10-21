@@ -1,0 +1,121 @@
+// Builds browser-specific copies of the extension. Pure Node, so it runs the same on macOS and Windows.
+//
+//   node scripts/build.mjs            -> dist/chrome and dist/firefox
+//   node scripts/build.mjs chrome     -> dist/chrome only
+//   node scripts/build.mjs --zip      -> also dist/sorotrack-<browser>-<version>.zip
+import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { deflateRawSync } from 'node:zlib';
+
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const SRC = join(ROOT, 'extension');
+const DIST = join(ROOT, 'dist');
+const BROWSERS = ['chrome', 'firefox'];
+
+const args = process.argv.slice(2);
+const zip = args.includes('--zip');
+const targets = args.filter((a) => BROWSERS.includes(a));
+const unknown = args.filter((a) => a !== '--zip' && !BROWSERS.includes(a));
+if (unknown.length) {
+  console.error(`Unknown argument(s): ${unknown.join(', ')}. Use: chrome, firefox, --zip`);
+  process.exit(1);
+}
+
+const base = JSON.parse(readFileSync(join(SRC, 'manifest.json'), 'utf8'));
+
+function manifestFor(browser) {
+  const manifest = structuredClone(base);
+  if (browser === 'chrome') {
+    manifest.background = { service_worker: base.background.service_worker };
+    delete manifest.browser_specific_settings;
+  } else {
+    // Firefox runs background scripts as an event page and rewrites the Origin header with webRequest.
+    manifest.background = { scripts: base.background.scripts };
+    manifest.permissions = manifest.permissions
+      .filter((p) => p !== 'declarativeNetRequestWithHostAccess')
+      .concat(['webRequest', 'webRequestBlocking']);
+  }
+  return manifest;
+}
+
+function listFiles(dir) {
+  return readdirSync(dir).flatMap((name) => {
+    const full = join(dir, name);
+    return statSync(full).isDirectory() ? listFiles(full) : [full];
+  });
+}
+
+// Minimal ZIP writer (deflate, no external tools).
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (const byte of buf) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function writeZip(outFile, dir) {
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+  for (const file of listFiles(dir)) {
+    const name = Buffer.from(relative(dir, file).split(sep).join('/'));
+    const data = readFileSync(file);
+    const packed = deflateRawSync(data, { level: 9 });
+    const crc = crc32(data);
+
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4); // version needed
+    local.writeUInt16LE(0x0800, 6); // UTF-8 names
+    local.writeUInt16LE(8, 8); // deflate
+    local.writeUInt32LE(0, 10); // time/date
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(packed.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    locals.push(local, name, packed);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(8, 10);
+    central.writeUInt32LE(0, 12);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(packed.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(offset, 42);
+    centrals.push(central, name);
+    offset += local.length + name.length + packed.length;
+  }
+  const centralDir = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(centrals.length / 2, 8);
+  end.writeUInt16LE(centrals.length / 2, 10);
+  end.writeUInt32LE(centralDir.length, 12);
+  end.writeUInt32LE(offset, 16);
+  writeFileSync(outFile, Buffer.concat([...locals, centralDir, end]));
+}
+
+for (const browser of targets.length ? targets : BROWSERS) {
+  const out = join(DIST, browser);
+  rmSync(out, { recursive: true, force: true });
+  mkdirSync(out, { recursive: true });
+  cpSync(SRC, out, { recursive: true, filter: (src) => src !== join(SRC, 'manifest.json') });
+  writeFileSync(join(out, 'manifest.json'), JSON.stringify(manifestFor(browser), null, 2) + '\n');
+  console.log(`Built ${relative(ROOT, out)}`);
+
+  if (zip) {
+    const zipFile = join(DIST, `sorotrack-${browser}-${base.version}.zip`);
+    writeZip(zipFile, out);
+    console.log(`Packed ${relative(ROOT, zipFile)}`);
+  }
+}

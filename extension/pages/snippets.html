@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SoroTrack snippets</title>
+  <link rel="stylesheet" href="pages.css">
+  <style>
+    main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    .toolbar input[type="search"] { flex: 1 1 240px; width: auto; }
+    .filter { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; font-size: 13px; }
+    .list { display: grid; gap: 12px; }
+    .item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+    .item h2 { font-size: 15.5px; margin: 0 0 4px; }
+    .meta { font-size: 12.5px; color: var(--fg-muted); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+    .meta a { color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
+    .summary { margin: 8px 0 0; }
+    .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+    .text { margin-top: 10px; font-size: 13px; color: var(--fg-muted); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 7.5em; overflow: hidden; position: relative; }
+    .text.open { max-height: none; color: var(--fg); }
+    .actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+    .empty { text-align: center; padding: 48px 16px; color: var(--fg-muted); background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius); }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="brand"><img src="../icons/icon-48.png" alt="">Saved snippets <span class="muted" id="count"></span></div>
+    <a class="btn small" href="options.html">Settings</a>
+  </header>
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Search titles, summaries, text and tags…" aria-label="Search snippets">
+    <button class="btn small" id="exportJson" type="button">Export JSON</button>
+    <button class="btn small" id="exportMd" type="button">Export Markdown</button>
+    <label class="btn small">Import JSON<input type="file" id="import" accept="application/json,.json" hidden></label>
+    <button class="btn small danger" id="clear" type="button">Delete all</button>
+  </div>
+  <div class="filter" id="filter" hidden>Tag: <span class="tag" id="filterTag"></span><button class="btn small" id="clearFilter" type="button">Clear</button></div>
+  <div class="list" id="list"></div>
+</main>
+<script src="../shared/config.js"></script>
+<script src="../shared/snippets.js"></script>
+<script src="snippets.js"></script>
+</body>
+</html>

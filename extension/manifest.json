@@ -1,80 +1,61 @@
 {
   "manifest_version": 3,
-  "name": "SoroTrack Personal AI Assistant",
-  "version": "1.2.0",
-  "description": "Personal AI Assistant appearing on every web page powered by local Ollama LLMs. Researches startups, cleans pages, and answers any query.",
-  "permissions": [
-    "storage",
-    "unlimitedStorage",
-    "activeTab",
-    "alarms"
-  ],
-  "host_permissions": [
-    "*://*/*",
-    "http://*/*",
-    "https://*/*",
-    "http://localhost:*/*",
-    "http://127.0.0.1:*/*"
-  ],
-  "action": {
-    "default_popup": "popup.html",
-    "default_title": "SoroTrack Personal AI Assistant",
-    "default_icon": {
-      "16": "icon16.png",
-      "48": "icon48.png",
-      "128": "icon128.png"
-    }
+  "name": "SoroTrack — Local AI Assistant",
+  "short_name": "SoroTrack",
+  "version": "2.0.0",
+  "description": "A private assistant on every page, powered by your local LLM (Ollama, LM Studio, llama.cpp…). Summarize pages, save snippets, remove AI slop.",
+  "permissions": ["storage", "unlimitedStorage", "contextMenus", "scripting", "activeTab", "declarativeNetRequestWithHostAccess"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background/sw.js",
+    "scripts": ["shared/config.js", "shared/markdown.js", "background/llm.js", "background/background.js"]
   },
   "content_scripts": [
     {
-      "matches": [
-        "<all_urls>"
+      "matches": ["http://*/*", "https://*/*"],
+      "js": [
+        "shared/config.js",
+        "shared/markdown.js",
+        "shared/prompts.js",
+        "shared/snippets.js",
+        "content/extract.js",
+        "content/styles.js",
+        "content/assistant.js"
       ],
-      "js": ["content.js"],
-      "css": ["content.css"],
       "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "http://localhost/*",
-        "http://127.0.0.1/*",
-        "https://*.run.app/*",
-        "https://*/*"
-      ],
-      "js": ["dashboard-bridge.js"],
-      "run_at": "document_start"
     }
   ],
-  "background": {
-    "service_worker": "background.js"
+  "action": {
+    "default_title": "SoroTrack",
+    "default_popup": "pages/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
   },
   "options_ui": {
-    "page": "options.html",
+    "page": "pages/options.html",
     "open_in_tab": true
   },
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "sorotrack@dashboard.local",
-      "strict_min_version": "109.0"
+  "commands": {
+    "toggle-assistant": {
+      "suggested_key": { "default": "Alt+Shift+K" },
+      "description": "Open or close the assistant on the current page"
     }
   },
   "icons": {
-    "16": "icon16.png",
-    "48": "icon48.png",
-    "128": "icon128.png"
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
   },
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "viewer.html",
-        "viewer.js",
-        "viewer.css",
-        "icon16.png",
-        "icon48.png",
-        "icon128.png",
-        "dashboard-bridge.js"
-      ],
-      "matches": ["*://*/*"]
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "sorotrack@arjunmarri.github.io",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": { "required": ["none"] }
     }
-  ]
+  }
 }

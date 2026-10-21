@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SoroTrack settings</title>
+  <link rel="stylesheet" href="pages.css">
+  <style>
+    main { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+    section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 16px; }
+    section h2 { font-size: 15px; margin: 0 0 4px; }
+    section > p { margin: 0 0 14px; color: var(--fg-muted); font-size: 13px; }
+    .field { display: grid; gap: 5px; margin-bottom: 14px; }
+    .field > span { font-weight: 550; font-size: 13px; }
+    .field small { color: var(--fg-muted); font-size: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0 16px; }
+    .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+    .check { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 12px; }
+    .check input { margin-top: 3px; }
+    .check small { display: block; color: var(--fg-muted); font-size: 12px; }
+    .result { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 10px; background: var(--surface-soft); font-size: 13px; margin-top: 4px; }
+    .result .dot { margin-top: 5px; }
+    .result pre { margin: 6px 0 0; background: none; padding: 0; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .sites { display: flex; flex-wrap: wrap; gap: 6px; }
+    .site { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 13px; }
+    .site button { border: none; background: none; color: var(--fg-muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 5px; }
+    .savebar { position: sticky; bottom: 0; display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 12px 0; background: linear-gradient(transparent, var(--bg) 30%); }
+    details summary { cursor: pointer; font-weight: 550; margin: 8px 0; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="brand"><img src="../icons/icon-48.png" alt="">SoroTrack settings</div>
+    <a class="btn small" href="snippets.html">Saved snippets</a>
+  </header>
+
+  <form id="form">
+    <section>
+      <h2>Local model server</h2>
+      <p>SoroTrack sends page text only to this URL. Use a server running on your own machine.</p>
+      <div class="presets" id="presets"></div>
+      <div class="grid">
+        <label class="field"><span>Server URL</span>
+          <input type="text" id="baseUrl" spellcheck="false" placeholder="http://127.0.0.1:11434">
+        </label>
+        <label class="field"><span>API type</span>
+          <select id="provider">
+            <option value="auto">Detect automatically</option>
+            <option value="ollama">Ollama</option>
+            <option value="openai">OpenAI-compatible (/v1)</option>
+          </select>
+        </label>
+      </div>
+      <label class="field"><span>API key <small>(optional — only if your server requires one)</small></span>
+        <input type="password" id="apiKey" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="row">
+        <button class="btn" type="button" id="test">Test connection</button>
+      </div>
+      <div class="result" id="result" hidden><span class="dot" id="resultDot"></span><div id="resultText"></div></div>
+      <label class="field" style="margin-top:14px"><span>Model</span>
+        <select id="model"><option value="">First available model</option></select>
+        <small>Smaller models (3–8B) answer faster; larger ones summarize and filter better.</small>
+      </label>
+    </section>
+
+    <section>
+      <h2>Generation</h2>
+      <p>Defaults suit most models.</p>
+      <div class="grid">
+        <label class="field"><span>Temperature</span>
+          <input type="number" id="temperature" min="0" max="2" step="0.1">
+          <small>Lower is more focused.</small>
+        </label>
+        <label class="field"><span>Context window (tokens)</span>
+          <input type="number" id="contextWindow" min="2048" max="262144" step="1024">
+          <small>Ollama only. Higher uses more memory.</small>
+        </label>
+        <label class="field"><span>Max page text (characters)</span>
+          <input type="number" id="maxPageChars" min="2000" max="200000" step="1000">
+          <small>Longer pages are cut off at this length.</small>
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" id="allowThinking">
+        <span>Let reasoning models think first<small>Better answers from models like Qwen3 or DeepSeek-R1, but much slower.</small></span>
+      </label>
+    </section>
+
+    <section>
+      <h2>On the page</h2>
+      <p>The assistant button appears in the bottom-right corner of every website.</p>
+      <label class="check"><input type="checkbox" id="showLauncher">
+        <span>Show the assistant button<small>When off, open it from the toolbar icon, the right-click menu, or <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>.</small></span>
+      </label>
+      <label class="field"><span>Removed AI slop is…</span>
+        <select id="slopMode">
+          <option value="hide">Hidden completely</option>
+          <option value="dim">Dimmed and outlined, so you can check it</option>
+        </select>
+      </label>
+      <div class="field"><span>Button hidden on these sites</span>
+        <div class="sites" id="sites"></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Troubleshooting</h2>
+      <p>If the connection test fails:</p>
+      <details>
+        <summary>Ollama isn't running</summary>
+        <p>Open the Ollama app (macOS menu bar / Windows system tray), or run <code>ollama serve</code>. Then download a model, for example <code>ollama pull llama3.2</code>.</p>
+      </details>
+      <details>
+        <summary>403 Forbidden</summary>
+        <p>SoroTrack normally handles this. If your setup still rejects the extension, allow extension origins and restart Ollama:</p>
+        <p><b>macOS</b></p>
+        <pre>launchctl setenv OLLAMA_ORIGINS "chrome-extension://*,moz-extension://*"</pre>
+        <p><b>Windows</b> (PowerShell or Command Prompt)</p>
+        <pre>setx OLLAMA_ORIGINS "chrome-extension://*,moz-extension://*"</pre>
+        <p>Then quit Ollama completely and start it again.</p>
+      </details>
+      <details>
+        <summary>LM Studio, llama.cpp, Jan and others</summary>
+        <p>Start the app's local server and use its URL ending in <code>/v1</code>, for example <code>http://127.0.0.1:1234/v1</code> for LM Studio. In LM Studio, load a chat model and turn on “Enable CORS” if requests fail.</p>
+      </details>
+    </section>
+
+    <div class="savebar">
+      <span class="muted" id="saved" role="status"></span>
+      <button class="btn primary" type="submit">Save settings</button>
+    </div>
+  </form>
+</main>
+<script src="../shared/config.js"></script>
+<script src="options.js"></script>
+</body>
+</html>
