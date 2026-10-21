@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "SoroTrack Extension",
-  "version": "1.1.0",
-  "description": "Preserves and extracts tweets, authors, bookmarks, and references on X (x.com), automatically adding snippets to SoroTrack when bookmarked or viewed.",
+  "name": "SoroTrack Personal AI Assistant",
+  "version": "1.2.0",
+  "description": "Personal AI Assistant appearing on every web page powered by local Ollama LLMs. Researches startups, cleans pages, and answers any query.",
   "permissions": [
     "storage",
     "unlimitedStorage",
@@ -10,15 +10,15 @@
     "alarms"
   ],
   "host_permissions": [
-    "*://x.com/*",
-    "*://twitter.com/*",
-    "http://localhost:3000/*",
-    "http://127.0.0.1:3000/*",
-    "https://*/*"
+    "*://*/*",
+    "http://*/*",
+    "https://*/*",
+    "http://localhost:*/*",
+    "http://127.0.0.1:*/*"
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "SoroTrack Extension",
+    "default_title": "SoroTrack Personal AI Assistant",
     "default_icon": {
       "16": "icon16.png",
       "48": "icon48.png",
@@ -28,8 +28,7 @@
   "content_scripts": [
     {
       "matches": [
-        "*://x.com/*",
-        "*://twitter.com/*"
+        "<all_urls>"
       ],
       "js": ["content.js"],
       "css": ["content.css"],
@@ -47,7 +46,7 @@
     }
   ],
   "background": {
-    "scripts": ["background.js"]
+    "service_worker": "background.js"
   },
   "options_ui": {
     "page": "options.html",
@@ -66,7 +65,15 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["viewer.html", "viewer.js", "viewer.css", "icon16.png", "icon48.png", "icon128.png", "dashboard-bridge.js"],
+      "resources": [
+        "viewer.html",
+        "viewer.js",
+        "viewer.css",
+        "icon16.png",
+        "icon48.png",
+        "icon128.png",
+        "dashboard-bridge.js"
+      ],
       "matches": ["*://*/*"]
     }
   ]

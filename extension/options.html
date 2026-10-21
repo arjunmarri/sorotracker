@@ -135,6 +135,46 @@
     <span id="status-msg"></span>
   </div>
 
+  <!-- Local LLM Personal Assistant Section -->
+  <div style="margin-top: 32px; padding: 16px; border: 1px solid #1e293b; background: #111827; border-radius: 8px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <div>
+        <label style="color: #38bdf8; font-size: 14px; margin-bottom: 2px;">⚡ Personal AI Assistant (Local LLM)</label>
+        <div class="desc" style="margin-bottom: 0;">SoroTrack runs on every page and performs research, removes non-tech noise, and cleans pages using your locally installed LLM.</div>
+      </div>
+      <div id="llm-opt-status-badge" style="font-size: 11px; font-weight: 700; color: #10b981; background: rgba(16, 185, 129, 0.15); padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.3);">● Ready</div>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 12px;">
+      <label for="opt-llm-url">Local Ollama Endpoint URL</label>
+      <input type="text" id="opt-llm-url" placeholder="http://127.0.0.1:11434" value="http://127.0.0.1:11434">
+      <div class="desc" style="margin-top: 4px;">Default is http://127.0.0.1:11434 (port used by Ollama on Mac Studio and Windows).</div>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 12px;">
+      <label for="opt-llm-model">Active Model</label>
+      <div style="display: flex; gap: 8px;">
+        <input type="text" id="opt-llm-model" placeholder="e.g. llama3.2, mistral, deepseek-r1" style="flex: 1;">
+        <button id="opt-fetch-models-btn" type="button" style="background: #1e293b; border: 1px solid #334155; font-size: 12px; padding: 6px 14px;">Query Installed</button>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 12px;">
+      <label class="checkbox-group">
+        <input type="checkbox" id="opt-assistant-auto-open">
+        <span>Auto-open assistant panel on page load</span>
+      </label>
+      <div class="desc" style="margin-top: 4px; margin-left: 24px;">
+        Pressing <kbd style="background:#1e293b;padding:1px 4px;border-radius:3px;">Alt + S</kbd> on any web page will also immediately toggle the assistant.
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <button id="opt-test-llm-btn" type="button" style="background: #0284c7; padding: 8px 16px; font-size: 12px;">Test Local LLM</button>
+      <span id="opt-llm-test-result" style="font-size: 12px;"></span>
+    </div>
+  </div>
+
   <div style="margin-top: 32px; padding: 16px; border: 1px solid #1e293b; background: #111827; border-radius: 8px;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
       <div>

@@ -1,31 +1,36 @@
 # SoroTrack — System Context & Architecture Specification
 
-> **Target Version**: v1.1.0  
+> **Target Version**: v1.2.0  
 > **Environment**: Full-Stack Web Application (Node.js/Express) + React 19 Frontend + Cross-Browser Manifest V3 Extension  
-> **Purpose**: This document provides the complete system context, component diagrams, API specifications, data models, and step-by-step instructions to locally build and package native Windows binaries (`.exe`).
+> **Key Capabilities**: Personal AI Web Assistant on Every Webpage powered by Local LLMs (Ollama, LM Studio), On-Page DOM Actions (Startup Research, Tech Content Filter, Minimalist Zen Mode), Automated 𝕏 Bookmarks Archival, and Native Windows Binary Installer.
 
 ---
 
 ## Table of Contents
 1. [Executive System Overview](#1-executive-system-overview)
-2. [Component & Layer Architecture](#2-component--layer-architecture)
-3. [File Tree & Module Responsibilities](#3-file-tree--module-responsibilities)
-4. [Data Models & Storage Layers](#4-data-models--storage-layers)
-5. [API Endpoint Specifications](#5-api-endpoint-specifications)
-6. [Browser Extension Architecture (MV3)](#6-browser-extension-architecture-mv3)
-7. [Authentication & Security Model](#7-authentication--security-model)
-8. [Windows Binary Packaging Strategies](#8-windows-binary-packaging-strategies)
+2. [Personal AI Assistant & Local LLM Inferencing Engine](#2-personal-ai-assistant--local-llm-inferencing-engine)
+3. [Component & Layer Architecture](#3-component--layer-architecture)
+4. [File Tree & Module Responsibilities](#4-file-tree--module-responsibilities)
+5. [Data Models & Storage Layers](#5-data-models--storage-layers)
+6. [API Endpoint Specifications](#6-api-endpoint-specifications)
+7. [Browser Extension Architecture (MV3)](#7-browser-extension-architecture-mv3)
+8. [Authentication & Security Model](#8-authentication--security-model)
+9. [Windows Binary Packaging Strategies](#9-windows-binary-packaging-strategies)
    - [Strategy 1: Native Windows C# / .NET Installer (Zero-Dependency)](#strategy-1-native-windows-c--net-installer-zero-dependency)
    - [Strategy 2: Standalone Full-Stack Executable via Node.js SEA](#strategy-2-standalone-full-stack-executable-via-nodejs-sea)
    - [Strategy 3: Inno Setup Professional Windows Installer](#strategy-3-inno-setup-professional-windows-installer)
    - [Strategy 4: Single Executable via `pkg`](#strategy-4-single-executable-via-pkg)
-9. [Local Windows Build & Run Checklist](#9-local-windows-build--run-checklist)
+10. [Local Windows Build & Run Checklist](#10-local-windows-build--run-checklist)
 
 ---
 
 ## 1. Executive System Overview
 
-**SoroTrack** is an intelligent personal web archiving and reading feed dashboard. It captures, enriches, categorizes, and synthesizes content from web browsing sessions and social feeds (specifically 𝕏 / Twitter history and bookmarks).
+**SoroTrack** has evolved into a full-featured **Personal AI Web Assistant** that appears on every webpage you browse, coupled with an intelligent web archiving dashboard.
+Powered by a **locally installed LLM** (such as Ollama or LM Studio), SoroTrack provides 100% private, zero-cloud inferencing directly in your browser. Users can ask the assistant to execute natural language web actions, such as:
+* **"Research all the startups listed here and summarize"** — Analyzes the active page, identifies company entities, and produces structured dossiers with value propositions and market segments.
+* **"Remove all the non-tech content from the page"** — Filters out lifestyle, gossip, celebrity, sports, and clickbait fluff, preserving code, developer documentation, and engineering architecture.
+* **"Turn this webpage into minimalist - remove all the graphics, heavy images"** — Strips images, video embeds, ads, and noise into a distraction-free, centered reading layout with 1-click restore.
 
 ### High-Level Architecture Diagram
 
@@ -265,31 +270,29 @@ You can compile and distribute SoroTrack on Windows using **four distinct strate
 > **Advantage**: Requires **ZERO third-party downloads**! Every Windows 10/11 installation includes the Microsoft .NET C# compiler (`csc.exe`) out of the box.
 
 #### How It Works:
-1. `scripts/SoroTrackInstaller.cs` is written in standard C#.
+1. `scripts/SoroTrackInstaller.cs` is written in standard C# with a native Windows Forms UI.
 2. The compiler script `scripts/build-windows-exe.bat` locates the pre-installed Windows `csc.exe` in:
    `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe`
 3. It compiles the source file into a native Windows executable: `SoroTrackInstaller.exe`.
 4. When executed on any Windows machine:
-   - Creates directory `%LOCALAPPDATA%\SoroTrack\extension`.
-   - Copies or extracts all extension files.
-   - Scans the Windows Registry and Program Files for:
-     - Microsoft Edge (`msedge.exe`)
-     - Google Chrome (`chrome.exe`)
-     - Brave Browser (`brave.exe`)
-     - Arc Browser (`Arc.exe`)
-     - Mozilla Firefox (`firefox.exe`)
-     - Vivaldi (`vivaldi.exe`)
-     - Opera (`launcher.exe`)
-   - Copies the permanent path to the Windows Clipboard (`Ctrl+V` ready).
-   - Creates a Desktop shortcut `Launch SoroTrack Browser.lnk`.
-   - Launches the primary browser with `--load-extension="%LOCALAPPDATA%\SoroTrack\extension"`.
+   - **Detects Installed Browsers**: Scans Program Files and LocalAppData for Microsoft Edge, Google Chrome, Brave, Arc, Mozilla Firefox, Vivaldi, and Opera.
+   - **Checks Running Status**: Detects if any browser processes (`msedge.exe`, `chrome.exe`, etc.) are actively running in background with Startup Boost.
+   - **Interactive Browser Selection UI**: Opens a clean setup window displaying all detected browsers with checkboxes, status badges (`[RUNNING - Needs Restart]` vs `[IDLE]`), and custom options.
+   - **User Confirmation**: The user confirms which browsers they want to configure, and can choose whether to restart running instances to ensure the extension loads immediately.
+   - **One-Click Execution**:
+     - Extracts/copies extension files to `%LOCALAPPDATA%\SoroTrack\extension`.
+     - Copies the folder path directly to the Windows Clipboard (`Ctrl+V` ready).
+     - Closes background processes if requested so Chromium recognizes the new extension without stale cache.
+     - Creates Desktop shortcuts (`Launch <Browser> with SoroTrack.bat`).
+     - Launches each confirmed browser directly to its Extension Management page with `--load-extension`.
+   - **Post-Install Guide**: Displays a dialog showing the final 1-step activation (turn on Developer Mode -> click "Load unpacked" -> paste path).
 
 #### Build Command (Run on Windows):
 ```cmd
 cd scripts
 build-windows-exe.bat
 ```
-Output: `SoroTrackInstaller.exe` (~100 KB native Windows binary).
+Output: `SoroTrackInstaller.exe` (~100 KB native Windows GUI binary).
 
 ---
 

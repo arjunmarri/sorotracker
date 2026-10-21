@@ -116,10 +116,9 @@ export async function detectBrowserInstalledVersion(): Promise<{
  * Combines server manifest latest version with browser-detected installed version.
  */
 export async function checkExtensionVersion(simulatedVersion?: string | null): Promise<ExtensionVersionInfo> {
-  let serverLatest = '1.1.0';
+  let serverLatest = '1.2.0';
   let serverInstalled: string | null = null;
-  let releaseDate = '2026-09-23';
-  let releaseNotes = 'Autonomous Top Content scanning agent, improved Firestore quota protection, and dark/light theme support.';
+  let releaseNotes = 'Personal AI Assistant on every page powered by local Ollama LLMs. Researches startups, cleans pages, and executes custom web tasks.';
   let downloadUrl = '/api/extension/download';
 
   // 1. Fetch server latest version

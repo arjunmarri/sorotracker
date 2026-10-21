@@ -11,9 +11,9 @@ import { RecordCard } from './components/RecordCard';
 import { XHistoryRecord, AISummaryResult, UserProfile, SiteSettings, SiteTheme, ContentFilterCategory, SubTopic, ReaderFontSize, SortOption, TopContentItem, AgentRunStatus, SubmenuType, ExtensionVersionInfo } from './types';
 import { ExtensionDrawer, ExtensionDrawerTab } from './components/ExtensionDrawer';
 import { ExtensionUpgradeAlert } from './components/ExtensionUpgradeAlert';
+import { BrowserInstallModal } from './components/BrowserInstallModal';
 import { checkExtensionVersion } from './lib/extensionVersion';
 import { AdminPanel } from './components/AdminPanel';
-import { AuthModal } from './components/AuthModal';
 import { ImportJsonModal } from './components/ImportJsonModal';
 import { Footer } from './components/Footer';
 import { ContentFilterSection } from './components/ContentFilterPopover';
@@ -80,6 +80,7 @@ export default function App() {
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isExtensionDrawerOpen, setIsExtensionDrawerOpen] = useState(false);
   const [extensionDrawerTab, setExtensionDrawerTab] = useState<ExtensionDrawerTab>('download');
+  const [isBrowserInstallOpen, setIsBrowserInstallOpen] = useState(false);
   const [storageStatus, setStorageStatus] = useState<{
     isCloudReady?: boolean;
     isQuotaExhausted?: boolean;
@@ -136,11 +137,10 @@ export default function App() {
     }, action ? 7000 : 3500);
   }, []);
 
-  // User Authentication & Admin Management
+  // User & Admin Management
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [archiveScope, setArchiveScope] = useState<'my' | 'all'>('my');
   const [isAdminOpen, setIsAdminOpen] = useState(false);
-  const [isAuthOpen, setIsAuthOpen] = useState(false);
 
   // Direct JSON Import Modal State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -561,8 +561,6 @@ export default function App() {
         e.preventDefault();
         if (currentUser?.role === 'admin') {
           setIsAdminOpen(prev => !prev);
-        } else {
-          setIsAuthOpen(true);
         }
       }
     };
@@ -570,11 +568,9 @@ export default function App() {
     const checkUrlTrigger = () => {
       const hash = window.location.hash.toLowerCase();
       const search = window.location.search.toLowerCase();
-      if (hash === '#admin' || hash === '#login' || search.includes('admin=true') || search.includes('login=true')) {
+      if (hash === '#admin' || search.includes('admin=true')) {
         if (currentUser?.role === 'admin') {
           setIsAdminOpen(true);
-        } else {
-          setIsAuthOpen(true);
         }
       }
     };
@@ -1331,9 +1327,9 @@ export default function App() {
         tagline={siteSettings.tagline}
         currentUser={currentUser}
         extensionVersionInfo={extensionVersionInfo}
-        onOpenExtensionDrawer={() => handleOpenExtensionDrawer('download')}
+        onOpenExtensionDrawer={(tab) => handleOpenExtensionDrawer(tab || 'download')}
+        onOpenBrowserInstall={() => setIsBrowserInstallOpen(true)}
         onOpenAdmin={() => setIsAdminOpen(true)}
-        onOpenAuth={() => setIsAuthOpen(true)}
         onLogout={async () => {
           await logoutUser();
           showToast('Signed out successfully', 'info');
@@ -1421,35 +1417,7 @@ export default function App() {
           </div>
         )}
 
-        {/* User Account Welcome / Connect Notice */}
-        {!currentUser && (
-          <div className="mb-6 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-blue-500/10 via-indigo-500/10 to-blue-500/10 dark:from-blue-950/40 dark:via-indigo-950/30 dark:to-blue-950/40 border border-blue-200/80 dark:border-blue-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-2xs">
-            <div className="flex items-start sm:items-center gap-3.5">
-              <div className="p-2.5 bg-blue-600 text-white rounded-xl shadow-xs shrink-0">
-                <Lock className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-sans font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>Personal 𝕏 Bookmarks &amp; Reading Archive</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-mono font-medium">Account Protected</span>
-                </h3>
-                <p className="text-xs text-slate-600 dark:text-stone-300 mt-0.5">
-                  Connect your account to preserve, organize, and view your private Twitter bookmarks. Only you can view your own bookmarks and reading records.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setIsAuthOpen(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
-              >
-                <UserIcon className="w-3.5 h-3.5" />
-                <span>Connect Account</span>
-              </button>
-            </div>
-          </div>
-        )}
+
 
         {/* Admin Scope Switcher: My Bookmarks vs All Archives */}
         {currentUser?.role === 'admin' && (
@@ -1998,10 +1966,18 @@ export default function App() {
         onClose={() => setIsExtensionDrawerOpen(false)}
         defaultTab={extensionDrawerTab}
         onOpenAdmin={() => setIsAdminOpen(true)}
+        onOpenBrowserInstall={() => setIsBrowserInstallOpen(true)}
         onExportJson={handleExportJsonArchive}
         onOpenImportJson={handleOpenImportModal}
         versionInfo={extensionVersionInfo}
         onCheckVersionAgain={checkVersion}
+      />
+
+      {/* Browser Detection & 1-Click Confirmation Modal */}
+      <BrowserInstallModal
+        isOpen={isBrowserInstallOpen}
+        onClose={() => setIsBrowserInstallOpen(false)}
+        onOpenDrawer={(tab) => handleOpenExtensionDrawer(tab)}
       />
 
       {/* Admin Panel Control Center */}
@@ -2015,15 +1991,7 @@ export default function App() {
         versionInfo={extensionVersionInfo}
       />
 
-      {/* User Login & Registration Modal */}
-      <AuthModal
-        isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
-        onSuccess={(user) => {
-          setCurrentUser(user);
-          showToast(`Welcome back, ${user.displayName || user.email}!`, 'success');
-        }}
-      />
+
 
       {/* Direct JSON Import from Extension or Backup Modal */}
       <ImportJsonModal

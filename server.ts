@@ -46,6 +46,7 @@ import {
 import { getSyncAuthToken, requireSyncAuth, validateSyncAuthToken } from './server/auth';
 import { 
   buildInstallerZip, 
+  buildInstallerTarGz,
   generateWindowsBatchLauncher, 
   generateWindowsPowerShellInstaller, 
   generateMacCommandInstaller,
@@ -1196,7 +1197,7 @@ app.get('/api/extension/download', async (req, res) => {
   }
 });
 
-// 1-Click OS Automated Installer Bundle Route (supports ?os=windows and ?os=mac)
+// 1-Click OS Automated Installer Bundle Route (supports ?os=windows and ?os=mac, format=zip or format=tar)
 app.get('/api/extension/installer', async (req, res) => {
   try {
     const userAgent = req.get('user-agent') || '';
@@ -1214,7 +1215,20 @@ app.get('/api/extension/installer', async (req, res) => {
     const authToken = getSyncAuthToken();
     const appOrigin = `${req.protocol}://${req.get('host')}`;
     const latestVersion = getLatestExtensionVersion();
+    const format = (req.query.format as string)?.toLowerCase();
 
+    // Check if user requested macOS .tar.gz bundle (guarantees +x execution permissions on Mac Studio)
+    if (targetOS === 'mac' && (format === 'tar' || format === 'targz' || format === 'tgz')) {
+      const tarBuffer = await buildInstallerTarGz(appOrigin, authToken, latestVersion, extensionDir);
+      const filename = `sorotrack-installer-mac-v${latestVersion}.tar.gz`;
+      res.setHeader('Content-Type', 'application/gzip');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Length', tarBuffer.length.toString());
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      return res.send(tarBuffer);
+    }
+
+    // Standard .zip with proper POSIX octal modes for macOS Archive Utility compatibility
     const zipBuffer = await buildInstallerZip(targetOS, appOrigin, authToken, latestVersion, extensionDir);
     const filename = `sorotrack-installer-${targetOS}-v${latestVersion}.zip`;
 
@@ -1230,7 +1244,7 @@ app.get('/api/extension/installer', async (req, res) => {
   }
 });
 
-// Direct Raw Installer Script (e.g. for curl | bash or direct .bat / .command / .ps1 download)
+// Direct Raw Installer Script (e.g. for curl | bash or direct .bat / .command / .sh / .ps1 download)
 app.get('/api/extension/installer/script', (req, res) => {
   try {
     const userAgent = req.get('user-agent') || '';
@@ -1262,7 +1276,14 @@ app.get('/api/extension/installer/script', (req, res) => {
       return res.send(bat);
     } else {
       const sh = generateMacCommandInstaller(appOrigin, authToken, latestVersion);
-      res.setHeader('Content-Type', 'text/x-shellscript; charset=utf-8');
+      if (format === 'sh') {
+        res.setHeader('Content-Type', 'text/x-shellscript; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="Install-SoroTrack.sh"');
+        return res.send(sh);
+      }
+      // application/octet-stream ensures Safari downloads the file directly to ~/Downloads
+      // without trying to invoke Archive Utility which causes "unsupported format" errors
+      res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Disposition', 'attachment; filename="Install-SoroTrack.command"');
       return res.send(sh);
     }
@@ -1370,12 +1391,115 @@ app.get('/api/extension/version', (req, res) => {
       latestVersion,
       installedVersion: installedVersion || null,
       isOutdated,
-      releaseDate: '2026-09-23',
-      releaseNotes: 'Autonomous Top Content scanning agent, improved Firestore quota protection, and dark/light theme support.',
+      releaseDate: '2026-10-21',
+      releaseNotes: 'Personal AI Assistant on every page powered by local Ollama LLMs. Researches startups, cleans pages, and executes custom web tasks.',
       downloadUrl: '/api/extension/download'
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to fetch extension version' });
+  }
+});
+
+// Test Local Ollama Connection and Model Status
+app.all('/api/ollama/test', async (req, res) => {
+  try {
+    let rawUrl = (req.body?.url || req.query?.url || 'http://127.0.0.1:11434').toString().trim();
+    if (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
+      rawUrl = `http://${rawUrl}`;
+    }
+    const targetModel = (req.body?.model || req.query?.model || 'llama3.2').toString().trim();
+
+    // Generate candidate URLs (try provided, then 127.0.0.1 <-> localhost fallback)
+    let candidates = [rawUrl.replace(/\/+$/, '')];
+    try {
+      const parsed = new URL(rawUrl);
+      const port = parsed.port || (parsed.protocol === 'https:' ? '443' : '11434');
+      if (parsed.hostname === '127.0.0.1') {
+        candidates.push(`${parsed.protocol}//localhost:${port}`);
+      } else if (parsed.hostname === 'localhost') {
+        candidates.push(`${parsed.protocol}//127.0.0.1:${port}`);
+      }
+    } catch {}
+
+    let lastError = '';
+    let connected = false;
+    let successfulUrl = '';
+    let models: string[] = [];
+    let version = '';
+
+    for (const testUrl of candidates) {
+      try {
+        const resp = await fetch(`${testUrl}/api/tags`, {
+          signal: AbortSignal.timeout(4000)
+        });
+        if (resp.ok) {
+          const data = await resp.json() as any;
+          models = Array.isArray(data.models) ? data.models.map((m: any) => m.name || m.model) : [];
+          connected = true;
+          successfulUrl = testUrl;
+
+          // Attempt to get Ollama version
+          try {
+            const vResp = await fetch(`${testUrl}/api/version`, { signal: AbortSignal.timeout(2000) });
+            if (vResp.ok) {
+              const vData = await vResp.json() as any;
+              version = vData.version || '';
+            }
+          } catch {}
+
+          break;
+        } else {
+          lastError = `HTTP ${resp.status} ${resp.statusText}`;
+        }
+      } catch (e: any) {
+        lastError = e?.message || 'Connection refused';
+      }
+    }
+
+    if (!connected) {
+      return res.json({
+        success: false,
+        connected: false,
+        url: rawUrl,
+        message: `Could not reach Ollama at ${rawUrl}. Error: ${lastError}. Make sure Ollama is running ('ollama serve').`
+      });
+    }
+
+    // Check if target model matches any model in tags
+    const lowerTarget = targetModel.toLowerCase();
+    const matchedModel = models.find(m => {
+      const lowerM = m.toLowerCase();
+      return lowerM === lowerTarget || lowerM === `${lowerTarget}:latest` || lowerM.startsWith(`${lowerTarget}:`);
+    });
+
+    const modelFound = Boolean(matchedModel);
+
+    let message = '';
+    if (modelFound) {
+      message = `Successfully connected to Ollama${version ? ` (v${version})` : ''} at ${successfulUrl}! Model '${matchedModel}' is active and ready.`;
+    } else if (models.length > 0) {
+      message = `Connected to Ollama${version ? ` (v${version})` : ''} at ${successfulUrl}, but model '${targetModel}' is not yet downloaded. Installed models: ${models.join(', ')}.`;
+    } else {
+      message = `Connected to Ollama${version ? ` (v${version})` : ''} at ${successfulUrl}, but no models are currently installed. Run 'ollama run ${targetModel || 'llama3.2'}' in your terminal.`;
+    }
+
+    return res.json({
+      success: true,
+      connected: true,
+      url: successfulUrl,
+      version,
+      models,
+      targetModel,
+      matchedModel: matchedModel || null,
+      modelFound,
+      message
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      connected: false,
+      message: err?.message || 'Failed to test Ollama connection'
+    });
   }
 });
 

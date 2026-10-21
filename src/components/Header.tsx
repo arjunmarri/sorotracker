@@ -13,21 +13,24 @@ import {
   Sun,
   Moon,
   Bot,
-  ArrowUpCircle
+  ArrowUpCircle,
+  Zap,
+  Apple
 } from 'lucide-react';
 import { UserProfile, SiteTheme, ExtensionVersionInfo } from '../types';
 
 interface HeaderProps {
   siteName?: string;
   tagline?: string;
-  currentUser: UserProfile | null;
+  currentUser?: UserProfile | null;
   currentTheme?: SiteTheme;
   onToggleTheme?: () => void;
   extensionVersionInfo?: ExtensionVersionInfo | null;
-  onOpenExtensionDrawer: () => void;
+  onOpenExtensionDrawer: (tab?: 'download' | 'assistant' | 'setup' | 'backup') => void;
+  onOpenBrowserInstall?: () => void;
   onOpenAdmin: () => void;
-  onOpenAuth: () => void;
-  onLogout: () => void;
+  onOpenAuth?: () => void;
+  onLogout?: () => void;
   onExportJson?: () => void;
   onOpenImportJson?: (file?: File) => void;
   onLogoClick?: () => void;
@@ -42,6 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
   tagline,
   currentUser,
   onOpenExtensionDrawer,
+  onOpenBrowserInstall,
   onOpenAdmin,
   onOpenAuth,
   onLogout,
@@ -86,8 +90,6 @@ export const Header: React.FC<HeaderProps> = ({
               onDoubleClick={() => {
                 if (isAdmin) {
                   onOpenAdmin();
-                } else {
-                  onOpenAuth();
                 }
               }}
               title={isAdmin ? "𝕏 (Double-click to open Admin)" : "𝕏"}
@@ -153,6 +155,21 @@ export const Header: React.FC<HeaderProps> = ({
                     <span className="hidden md:inline">Dark</span>
                   </>
                 )}
+              </button>
+            )}
+
+            {/* 1-Click Detect & Install Browsers (Apple Mac Studio & Windows) */}
+            {onOpenBrowserInstall && (
+              <button
+                id="header-browser-install-btn"
+                type="button"
+                onClick={onOpenBrowserInstall}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-xs transition cursor-pointer"
+                title="Detect Browsers & Install SoroTrack on Apple Mac Studio or Windows"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-300" />
+                <span className="hidden sm:inline">Install Extension</span>
+                <span className="sm:hidden">Install</span>
               </button>
             )}
 
@@ -325,9 +342,59 @@ export const Header: React.FC<HeaderProps> = ({
 
                   <div className="px-3 py-1.5">
                     <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-stone-500 font-semibold">
-                      Extension Manager
+                      Extension &amp; AI
                     </span>
                   </div>
+
+                  {/* AI Assistant */}
+                  <button
+                    id="ext-menu-ai-assistant-btn"
+                    type="button"
+                    onClick={() => {
+                      setIsExtensionMenuOpen(false);
+                      onOpenExtensionDrawer('assistant');
+                    }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-stone-800 flex items-center gap-2.5 transition cursor-pointer group"
+                  >
+                    <div className="p-1 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 group-hover:scale-105 transition">
+                      <Bot className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-slate-900 dark:text-stone-100 font-sans flex items-center gap-1.5">
+                        <span>Personal AI Assistant</span>
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300 font-mono font-bold">New v1.2.0</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 dark:text-stone-400 font-sans">
+                        Local LLM on every page (Ollama)
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Detect & Confirm Browsers */}
+                  {onOpenBrowserInstall && (
+                    <button
+                      id="ext-menu-detect-browsers-btn"
+                      type="button"
+                      onClick={() => {
+                        setIsExtensionMenuOpen(false);
+                        onOpenBrowserInstall();
+                      }}
+                      className="w-full text-left px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-stone-800 flex items-center gap-2.5 transition cursor-pointer group"
+                    >
+                      <div className="p-1 rounded-md bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 group-hover:scale-105 transition">
+                        <Apple className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-slate-900 dark:text-stone-100 font-sans flex items-center gap-1.5">
+                          <span>Detect &amp; Confirm Browsers</span>
+                          <span className="text-[9px] px-1 py-0.2 rounded bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 font-mono font-bold">Mac &amp; Win</span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 dark:text-stone-400 font-sans">
+                          Apple Mac Studio &amp; Windows setup wizard
+                        </div>
+                      </div>
+                    </button>
+                  )}
 
                   {/* Download Extension */}
                   <button
@@ -335,7 +402,7 @@ export const Header: React.FC<HeaderProps> = ({
                     type="button"
                     onClick={() => {
                       setIsExtensionMenuOpen(false);
-                      onOpenExtensionDrawer();
+                      onOpenExtensionDrawer('download');
                     }}
                     className="w-full text-left px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-stone-800 flex items-center gap-2.5 transition cursor-pointer group"
                   >
@@ -443,8 +510,8 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </div>
 
-            {/* Authenticated User Session Profile OR Sign In button */}
-            {currentUser ? (
+            {/* Authenticated Admin / Session Badge (if previously signed in) */}
+            {currentUser && (
               <div className="flex items-center gap-2 pl-2 border-l border-stone-200 dark:border-stone-800">
                 <button
                   onClick={isAdmin ? onOpenAdmin : undefined}
@@ -471,32 +538,16 @@ export const Header: React.FC<HeaderProps> = ({
                     </div>
                   </div>
                 </button>
-                <button
-                  id="header-logout-btn"
-                  onClick={onLogout}
-                  className="p-1.5 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 rounded-md hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer"
-                  title="Sign out"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 pl-2 border-l border-stone-200 dark:border-stone-800">
-                <button
-                  id="header-login-btn"
-                  type="button"
-                  onClick={onOpenAuth}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
-                  title="Sign in with Google Cloud or Email to view your bookmarks"
-                >
-                  <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24">
-                    <path fill="#ffffff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                    <path fill="#ffffff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                    <path fill="#ffffff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
-                    <path fill="#ffffff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
-                  </svg>
-                  <span>Sign In</span>
-                </button>
+                {onLogout && (
+                  <button
+                    id="header-logout-btn"
+                    onClick={onLogout}
+                    className="p-1.5 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 rounded-md hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer"
+                    title="Sign out"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             )}
           </div>

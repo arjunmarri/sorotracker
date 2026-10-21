@@ -645,7 +645,337 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     return true;
   }
+
+  // ==========================================
+  // LOCAL LLM INFERENCING HANDLERS (Ollama, LM Studio, LocalAI)
+  // Bypasses webpage CSP to communicate with local inferencing engines
+  // ==========================================
+  if (request.type === 'LOCAL_LLM_CHECK') {
+    handleLocalLLMCheck(request.payload || {}, (res) => {
+      sendResponse(res);
+    });
+    return true;
+  }
+
+  if (request.type === 'LOCAL_LLM_GET_MODELS') {
+    handleLocalLLMGetModels(request.payload || {}, (res) => {
+      sendResponse(res);
+    });
+    return true;
+  }
+
+  if (request.type === 'LOCAL_LLM_CHAT') {
+    handleLocalLLMChat(request.payload || {}, (res) => {
+      sendResponse(res);
+    });
+    return true;
+  }
 });
+
+// ==========================================
+// LOCAL LLM STREAMING PORT CONNECTION
+// ==========================================
+if (browserAPI.runtime.onConnect) {
+  browserAPI.runtime.onConnect.addListener((port) => {
+    if (port.name === 'soro_llm_stream') {
+      port.onMessage.addListener(async (msg) => {
+        if (msg.type === 'START_STREAM') {
+          await streamLocalLLM(msg.payload, port);
+        }
+      });
+    }
+  });
+}
+
+/**
+ * Helper to normalize and build fallback candidate URLs for local Ollama
+ */
+function buildOllamaCandidates(rawUrl) {
+  let base = (rawUrl || 'http://127.0.0.1:11434').trim();
+  if (!base.startsWith('http://') && !base.startsWith('https://')) {
+    base = `http://${base}`;
+  }
+  base = base.replace(/\/+$/, '');
+  const candidates = [base];
+  try {
+    const parsed = new URL(base);
+    const port = parsed.port || '11434';
+    if (parsed.hostname === '127.0.0.1') {
+      candidates.push(`${parsed.protocol}//localhost:${port}`);
+    } else if (parsed.hostname === 'localhost') {
+      candidates.push(`${parsed.protocol}//127.0.0.1:${port}`);
+    }
+  } catch {}
+  return candidates;
+}
+
+/**
+ * Probes local Ollama endpoint (URL & model availability)
+ */
+async function handleLocalLLMCheck(payload, callback) {
+  const { url, model = 'llama3.2' } = payload;
+  const candidates = buildOllamaCandidates(url);
+
+  let lastError = '';
+  for (const candidateUrl of candidates) {
+    try {
+      const testRes = await fetch(`${candidateUrl}/api/tags`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(4000)
+      });
+      if (testRes.ok) {
+        const data = await testRes.json();
+        const models = Array.isArray(data.models) ? data.models.map(m => m.name || m.model) : [];
+
+        // Check if target model is present
+        const targetLower = (model || '').toLowerCase();
+        const matched = models.find(m => {
+          const l = m.toLowerCase();
+          return l === targetLower || l === `${targetLower}:latest` || l.startsWith(`${targetLower}:`);
+        });
+
+        callback({
+          online: true,
+          provider: 'ollama',
+          url: candidateUrl,
+          models,
+          targetModel: model,
+          matchedModel: matched || (models[0] || model),
+          modelFound: Boolean(matched),
+          defaultModel: matched || models[0] || 'llama3.2',
+          message: matched 
+            ? `Connected to Ollama! Model '${matched}' is ready.`
+            : `Connected to Ollama with ${models.length} model(s) available.`
+        });
+        return;
+      } else {
+        lastError = `HTTP ${testRes.status}`;
+      }
+    } catch (e) {
+      lastError = e?.message || 'Connection refused';
+    }
+  }
+
+  callback({
+    online: false,
+    provider: 'ollama',
+    url: candidates[0],
+    message: `Could not reach Ollama at ${candidates[0]} (${lastError}). Make sure Ollama is running ('ollama serve').`
+  });
+}
+
+/**
+ * Fetches all available model tags from local Ollama
+ */
+async function handleLocalLLMGetModels(payload, callback) {
+  const { url } = payload;
+  const candidates = buildOllamaCandidates(url);
+
+  for (const candidateUrl of candidates) {
+    try {
+      const res = await fetch(`${candidateUrl}/api/tags`, { signal: AbortSignal.timeout(4000) });
+      if (res.ok) {
+        const data = await res.json();
+        const models = Array.isArray(data.models) ? data.models.map(m => m.name || m.model) : [];
+        callback({ success: true, models, url: candidateUrl });
+        return;
+      }
+    } catch (err) {}
+  }
+  callback({ success: false, error: 'Could not connect to Ollama. Make sure Ollama is running.', models: [] });
+}
+
+/**
+ * Synchronous non-streaming chat request to local Ollama with automatic model tag resolution
+ */
+async function handleLocalLLMChat(payload, callback) {
+  const {
+    url,
+    model = 'llama3.2',
+    prompt,
+    systemPrompt = 'You are SoroTrack Personal Assistant. Help the user with web page tasks and research.',
+    temperature = 0.3
+  } = payload;
+
+  const candidates = buildOllamaCandidates(url);
+  let lastError = '';
+
+  for (const baseUrl of candidates) {
+    try {
+      // Step 1: Query tags to find available models & map tag accurately
+      let resolvedModel = model;
+      try {
+        const tagsRes = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(3000) });
+        if (tagsRes.ok) {
+          const tagsData = await tagsRes.json();
+          const tagModels = Array.isArray(tagsData.models) ? tagsData.models.map(m => m.name || m.model) : [];
+          const targetLower = (model || '').toLowerCase();
+          const found = tagModels.find(m => {
+            const l = m.toLowerCase();
+            return l === targetLower || l === `${targetLower}:latest` || l.startsWith(`${targetLower}:`);
+          });
+          if (found) {
+            resolvedModel = found;
+          } else if (tagModels.length > 0 && !targetLower) {
+            resolvedModel = tagModels[0];
+          }
+        }
+      } catch {}
+
+      // Step 2: Try /api/chat with 45s timeout
+      let res = await fetch(`${baseUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: resolvedModel || 'llama3.2',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: prompt }
+          ],
+          stream: false,
+          options: { temperature }
+        }),
+        signal: AbortSignal.timeout(45000)
+      }).catch(err => {
+        lastError = err?.message || 'Chat request failed';
+        return null;
+      });
+
+      // Step 3: If /api/chat failed or returned 404, fallback to /api/generate
+      if (!res || !res.ok) {
+        res = await fetch(`${baseUrl}/api/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: resolvedModel || 'llama3.2',
+            prompt: `${systemPrompt}\n\nUser Request: ${prompt}\n\nAssistant Response:`,
+            stream: false,
+            options: { temperature }
+          }),
+          signal: AbortSignal.timeout(45000)
+        }).catch(err => {
+          lastError = err?.message || 'Generate request failed';
+          return null;
+        });
+      }
+
+      if (res && res.ok) {
+        const data = await res.json();
+        const content = data.message?.content || data.response || '';
+        callback({ success: true, content, model: data.model || resolvedModel, url: baseUrl });
+        return;
+      } else if (res) {
+        const errText = await res.text().catch(() => '');
+        lastError = `Ollama HTTP ${res.status}: ${errText}`;
+      }
+    } catch (err) {
+      lastError = err?.message || 'Unknown network error';
+    }
+  }
+
+  callback({
+    success: false,
+    error: lastError || 'Could not connect to Ollama',
+    troubleshooting: `Failed to connect to Ollama at ${candidates[0]}. Make sure 'ollama serve' is running and the model '${model}' is installed ('ollama run ${model}').`
+  });
+}
+
+/**
+ * Stream local Ollama tokens in real-time over port connection
+ */
+async function streamLocalLLM(payload, port) {
+  const {
+    url,
+    model = 'llama3.2',
+    prompt,
+    systemPrompt = 'You are SoroTrack Personal Assistant.',
+    temperature = 0.3
+  } = payload;
+
+  const candidates = buildOllamaCandidates(url);
+
+  for (const baseUrl of candidates) {
+    try {
+      const res = await fetch(`${baseUrl}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: model || 'llama3.2',
+          prompt: `${systemPrompt}\n\nUser: ${prompt}\n\nAssistant:`,
+          stream: true,
+          options: { temperature }
+        }),
+        signal: AbortSignal.timeout(60000)
+      });
+
+      if (!res.ok) {
+        continue;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let fullText = '';
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const parsed = JSON.parse(line);
+            if (parsed.response) {
+              fullText += parsed.response;
+              port.postMessage({ type: 'CHUNK', chunk: parsed.response, fullText });
+            }
+          } catch (e) {}
+        }
+      }
+
+      port.postMessage({ type: 'DONE', fullText });
+      return;
+    } catch (err) {
+      // Try next candidate
+    }
+  }
+
+  port.postMessage({ type: 'ERROR', error: 'Ollama streaming failed' });
+}
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === 'data: [DONE]') continue;
+          if (trimmed.startsWith('data: ')) {
+            try {
+              const parsed = JSON.parse(trimmed.slice(6));
+              const chunk = parsed.choices?.[0]?.delta?.content || '';
+              if (chunk) {
+                fullText += chunk;
+                port.postMessage({ type: 'CHUNK', chunk, fullText });
+              }
+            } catch (e) {}
+          }
+        }
+      }
+
+      port.postMessage({ type: 'DONE', fullText });
+    }
+  } catch (err) {
+    port.postMessage({ type: 'ERROR', error: err.message });
+  }
+}
+
 
 // Autonomous Scraper Function injected into x.com/explore background tab
 function scrapeXTrendsFromPage() {

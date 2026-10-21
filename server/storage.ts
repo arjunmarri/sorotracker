@@ -34,7 +34,7 @@ let agentStatus: AgentRunStatus = {
 };
 // Extension version status
 let extensionStatus = {
-  latestVersion: '1.1.0',
+  latestVersion: '1.2.0',
   installedVersion: '1.0.0' as string | null,
   lastCheckedAt: new Date().toISOString()
 };
@@ -356,7 +356,6 @@ export function getAllRecords(options?: {
   }
 
   // User account privacy isolation:
-  // "Only users who connect their account should see their own bookmarks and not others"
   if (options) {
     const { userId, userEmail, isAdmin, scope } = options;
     const reqEmail = userEmail ? userEmail.toLowerCase().trim() : null;
@@ -364,16 +363,14 @@ export function getAllRecords(options?: {
     if (isAdmin && scope === 'all') {
       // Admin specifically viewing full global archive
     } else if (userId || reqEmail) {
-      // Connected user: strictly show their own bookmarks and records
+      // If specific user credentials are provided, filter to them
       list = list.filter(r => {
         const matchesId = Boolean(userId && r.userId === userId);
         const matchesEmail = Boolean(reqEmail && r.userEmail && r.userEmail.toLowerCase().trim() === reqEmail);
         return matchesId || matchesEmail;
       });
-    } else {
-      // Unauthenticated visitor / guest: only show unassigned public records, NEVER other users' private bookmarks
-      list = list.filter(r => !r.userId && !r.userEmail);
     }
+    // When no account is required/logged in, all saved bookmarks are directly visible and accessible
   }
 
   if (options) {

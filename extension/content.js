@@ -2319,11 +2319,1451 @@
     });
   }
 
+  // =========================================================================
+  // SOROTRACK PERSONAL AI ASSISTANT (ON EVERY PAGE)
+  // Powered by Local LLM Inferencing (Ollama, LM Studio, LocalAI)
+  // =========================================================================
+
+  let assistantHost = null;
+  let assistantShadow = null;
+  let isAssistantOpen = false;
+  let isMinimalistActive = false;
+  let isTechFilterActive = false;
+  let hiddenNonTechElements = [];
+  let highlightedStartupSpans = [];
+
+  const DEFAULT_LLM_SETTINGS = {
+    url: 'http://127.0.0.1:11434',
+    model: 'llama3.2',
+    temperature: 0.3,
+    autoOpenOnLoad: false,
+    orbStyle: 'icon'
+  };
+
+  let assistantConfig = { ...DEFAULT_LLM_SETTINGS };
+  let detectedLocalModels = [];
+  let isLocalLLMOnline = false;
+  let assistantMessages = [
+    {
+      role: 'assistant',
+      content: 'Hello! I am your **SoroTrack Personal AI Assistant** running directly on this page.\n\nI am powered by your **local Ollama LLM** for private, non-cloud inferencing. Click one of the quick actions below or give me any command!'
+    }
+  ];
+
+  /**
+   * Loads user settings for Local Ollama from chrome.storage.local
+   */
+  function loadAssistantSettings(callback) {
+    if (!browserAPI?.storage?.local?.get) {
+      if (callback) callback();
+      return;
+    }
+    browserAPI.storage.local.get([
+      'soro_local_llm_url',
+      'soro_local_llm_ollama_url',
+      'soro_local_llm_model',
+      'soro_local_llm_temperature',
+      'soro_assistant_auto_open',
+      'soro_assistant_orb_style'
+    ], (res) => {
+      if (res?.soro_local_llm_url) assistantConfig.url = res.soro_local_llm_url;
+      else if (res?.soro_local_llm_ollama_url) assistantConfig.url = res.soro_local_llm_ollama_url;
+      if (res?.soro_local_llm_model) assistantConfig.model = res.soro_local_llm_model;
+      if (res?.soro_local_llm_temperature) assistantConfig.temperature = res.soro_local_llm_temperature;
+      if (typeof res?.soro_assistant_auto_open === 'boolean') assistantConfig.autoOpenOnLoad = res.soro_assistant_auto_open;
+      if (res?.soro_assistant_orb_style) assistantConfig.orbStyle = res.soro_assistant_orb_style;
+      if (callback) callback();
+    });
+  }
+
+  /**
+   * Saves updated settings into storage
+   */
+  function saveAssistantSettings() {
+    if (!browserAPI?.storage?.local?.set) return;
+    browserAPI.storage.local.set({
+      soro_local_llm_url: assistantConfig.url,
+      soro_local_llm_model: assistantConfig.model,
+      soro_local_llm_temperature: assistantConfig.temperature,
+      soro_assistant_auto_open: assistantConfig.autoOpenOnLoad,
+      soro_assistant_orb_style: assistantConfig.orbStyle
+    });
+  }
+
+  /**
+   * Probes the local Ollama endpoint (via background script to avoid CSP issues)
+   */
+  function checkLocalLLMStatus(onDone) {
+    const targetUrl = (assistantConfig.url || 'http://127.0.0.1:11434').trim();
+
+    browserAPI.runtime.sendMessage({
+      type: 'LOCAL_LLM_CHECK',
+      payload: {
+        provider: 'ollama',
+        url: targetUrl,
+        model: assistantConfig.model
+      }
+    }, (res) => {
+      if (browserAPI.runtime.lastError || !res) {
+        isLocalLLMOnline = false;
+        updateAssistantStatusBadge();
+        if (onDone) onDone(false, { error: browserAPI.runtime.lastError?.message || 'Background service worker unavailable' });
+        return;
+      }
+
+      isLocalLLMOnline = Boolean(res.online);
+      if (Array.isArray(res.models) && res.models.length > 0) {
+        detectedLocalModels = res.models;
+        if (res.matchedModel) {
+          assistantConfig.model = res.matchedModel;
+        } else if (!assistantConfig.model) {
+          assistantConfig.model = res.defaultModel || res.models[0];
+          saveAssistantSettings();
+        }
+      }
+      updateAssistantStatusBadge();
+      if (onDone) onDone(isLocalLLMOnline, res);
+    });
+  }
+
+  /**
+   * Initializes the persistent Personal Assistant on every webpage
+   */
+  function initPersonalAssistant() {
+    if (document.getElementById('sorotrack-personal-assistant-host')) return;
+
+    loadAssistantSettings(() => {
+      const host = document.createElement('div');
+      host.id = 'sorotrack-personal-assistant-host';
+      host.setAttribute('data-soro-ignore', 'true');
+      
+      // Default bottom-right positioning, with saved position restoration
+      let initialBottom = 24;
+      let initialRight = 24;
+      try {
+        const savedPos = JSON.parse(localStorage.getItem('sorotrack_assistant_pos') || 'null');
+        if (savedPos && typeof savedPos.bottom === 'number' && typeof savedPos.right === 'number') {
+          initialBottom = Math.max(12, Math.min(window.innerHeight - 70, savedPos.bottom));
+          initialRight = Math.max(12, Math.min(window.innerWidth - 70, savedPos.right));
+        }
+      } catch {}
+
+      host.style.cssText = `position:fixed;bottom:${initialBottom}px;right:${initialRight}px;z-index:2147483647;pointer-events:auto;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;`;
+
+      const shadow = host.attachShadow({ mode: 'open' });
+      assistantHost = host;
+      assistantShadow = shadow;
+
+      renderAssistantDOM(shadow);
+      bindAssistantEvents(shadow, host);
+
+      // Append host to DOM
+      (document.body || document.documentElement).appendChild(host);
+
+      // Check local LLM status
+      checkLocalLLMStatus((online) => {
+        if (!online) {
+          console.log('[SoroTrack Assistant] Local LLM standby. Ollama (Metal on Mac Studio) or LM Studio can be started anytime.');
+        }
+      });
+
+      // Keyboard shortcut: Option+S on Mac Studio, Alt+S on Windows
+      window.addEventListener('keydown', (e) => {
+        if (e.altKey && (e.key === 's' || e.key === 'S')) {
+          e.preventDefault();
+          toggleAssistantPanel();
+        }
+      });
+
+      if (assistantConfig.autoOpenOnLoad) {
+        toggleAssistantPanel(true);
+      }
+    });
+  }
+
+  /**
+   * Renders the complete Assistant Shadow DOM
+   */
+  function renderAssistantDOM(shadow) {
+    const isMacPlatform = /Mac|iPhone|iPad/i.test(navigator.platform || '') || /Macintosh/i.test(navigator.userAgent || '');
+    const shortcutLabel = isMacPlatform ? '⌥S' : 'Alt+S';
+
+    shadow.innerHTML = `
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        /* Floating Little Icon Trigger (Appears on every webpage) */
+        .assistant-orb {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          position: relative;
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          background: linear-gradient(135deg, #090d16 0%, #1e293b 100%);
+          color: #f8fafc;
+          border: 1.5px solid rgba(56, 189, 248, 0.45);
+          box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.6), 0 0 14px rgba(2, 132, 199, 0.3);
+          cursor: grab;
+          user-select: none;
+          transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .assistant-orb:active {
+          cursor: grabbing;
+        }
+        .assistant-orb.pill-mode {
+          width: auto;
+          height: auto;
+          border-radius: 9999px;
+          padding: 8px 14px;
+          gap: 8px;
+        }
+        .assistant-orb:hover {
+          background: linear-gradient(135deg, #0f172a 0%, #293548 100%);
+          border-color: #38bdf8;
+          transform: translateY(-2px) scale(1.08);
+          box-shadow: 0 12px 28px -4px rgba(2, 132, 199, 0.5), 0 0 20px rgba(56, 189, 248, 0.45);
+        }
+        .assistant-orb-icon {
+          width: 28px;
+          height: 28px;
+          background: linear-gradient(135deg, #0284c7, #2563eb);
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 15px;
+          color: #fff;
+          font-weight: bold;
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+        }
+        .assistant-orb-text {
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: -0.2px;
+          display: none;
+        }
+        .assistant-orb.pill-mode .assistant-orb-text {
+          display: inline-block;
+        }
+        .assistant-status-dot {
+          position: absolute;
+          top: -2px;
+          right: -2px;
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background: #f59e0b;
+          border: 2px solid #090d16;
+          box-shadow: 0 0 8px #f59e0b;
+          transition: all 0.25s;
+        }
+        .assistant-status-dot.online {
+          background: #10b981;
+          box-shadow: 0 0 12px #10b981;
+        }
+
+        /* Floating Tooltip */
+        .assistant-orb-tooltip {
+          position: absolute;
+          right: 52px;
+          top: 50%;
+          transform: translateY(-50%) translateX(6px);
+          background: rgba(15, 23, 42, 0.96);
+          color: #f1f5f9;
+          border: 1px solid #334155;
+          padding: 5px 11px;
+          border-radius: 8px;
+          font-size: 11px;
+          font-weight: 600;
+          white-space: nowrap;
+          pointer-events: none;
+          opacity: 0;
+          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+        }
+        .assistant-orb:hover .assistant-orb-tooltip {
+          opacity: 1;
+          transform: translateY(-50%) translateX(0);
+        }
+        
+        /* Main Assistant Floating Panel */
+        .assistant-panel {
+          display: none;
+          flex-direction: column;
+          width: 420px;
+          height: 600px;
+          max-height: calc(100vh - 100px);
+          background: #090d14;
+          border: 1px solid #1e293b;
+          border-radius: 16px;
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+          overflow: hidden;
+          margin-bottom: 12px;
+          animation: panelIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .assistant-panel.open {
+          display: flex;
+        }
+        @keyframes panelIn {
+          from { opacity: 0; transform: translateY(15px) scale(0.97); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        /* Header */
+        .panel-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px 16px;
+          background: #0f172a;
+          border-bottom: 1px solid #1e293b;
+        }
+        .header-left {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .header-title {
+          font-size: 13px;
+          font-weight: 700;
+          color: #f8fafc;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .header-badge {
+          font-size: 10px;
+          font-weight: 600;
+          padding: 2px 7px;
+          border-radius: 12px;
+          background: #1e293b;
+          color: #94a3b8;
+          border: 1px solid #334155;
+          max-width: 130px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .header-badge.online {
+          background: rgba(16, 185, 129, 0.15);
+          color: #34d399;
+          border-color: rgba(16, 185, 129, 0.3);
+        }
+        .header-actions {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+        .btn-icon {
+          background: transparent;
+          border: none;
+          color: #94a3b8;
+          width: 26px;
+          height: 26px;
+          border-radius: 6px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          font-size: 13px;
+          transition: all 0.15s;
+        }
+        .btn-icon:hover {
+          background: #1e293b;
+          color: #f8fafc;
+        }
+
+        /* Settings Drawer */
+        .settings-drawer {
+          display: none;
+          padding: 14px 16px;
+          background: #0c121e;
+          border-bottom: 1px solid #1e293b;
+          font-size: 12px;
+          color: #cbd5e1;
+        }
+        .settings-drawer.open {
+          display: block;
+        }
+        .setting-row {
+          margin-bottom: 10px;
+        }
+        .setting-label {
+          display: block;
+          font-size: 11px;
+          font-weight: 600;
+          color: #94a3b8;
+          margin-bottom: 4px;
+          text-transform: uppercase;
+        }
+        .setting-input, .setting-select {
+          width: 100%;
+          padding: 7px 10px;
+          background: #151d2a;
+          border: 1px solid #233044;
+          border-radius: 6px;
+          color: #f8fafc;
+          font-size: 12px;
+        }
+        .setting-actions {
+          display: flex;
+          gap: 8px;
+          margin-top: 10px;
+        }
+        .btn-sm {
+          padding: 5px 12px;
+          background: #2563eb;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .btn-sm.secondary {
+          background: #1e293b;
+          color: #cbd5e1;
+          border: 1px solid #334155;
+        }
+        .btn-sm:hover {
+          opacity: 0.9;
+        }
+
+        /* Quick Action Chips */
+        .quick-actions {
+          display: flex;
+          gap: 6px;
+          padding: 10px 14px;
+          background: #0c1320;
+          border-bottom: 1px solid #1a2333;
+          overflow-x: auto;
+          white-space: nowrap;
+          scrollbar-width: none;
+        }
+        .quick-actions::-webkit-scrollbar {
+          display: none;
+        }
+        .chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          padding: 5px 11px;
+          border-radius: 14px;
+          background: #151f30;
+          color: #e2e8f0;
+          border: 1px solid #233044;
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        .chip:hover {
+          background: #1e2d44;
+          border-color: #0284c7;
+          color: #38bdf8;
+        }
+        .chip.active {
+          background: rgba(2, 132, 199, 0.2);
+          border-color: #0284c7;
+          color: #38bdf8;
+        }
+
+        /* Chat / Activity Feed */
+        .chat-feed {
+          flex: 1;
+          overflow-y: auto;
+          padding: 14px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          scroll-behavior: smooth;
+        }
+        .message {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          max-width: 92%;
+          font-size: 12px;
+          line-height: 1.55;
+        }
+        .message.user {
+          align-self: flex-end;
+          background: #1d4ed8;
+          color: #ffffff;
+          padding: 9px 13px;
+          border-radius: 14px 14px 2px 14px;
+        }
+        .message.assistant {
+          align-self: flex-start;
+          background: #131b28;
+          color: #e2e8f0;
+          padding: 11px 14px;
+          border-radius: 14px 14px 14px 2px;
+          border: 1px solid #1e293b;
+        }
+        .message-content h1, .message-content h2, .message-content h3 {
+          color: #38bdf8;
+          margin: 6px 0 4px 0;
+          font-size: 13px;
+        }
+        .message-content p {
+          margin-bottom: 6px;
+        }
+        .message-content ul, .message-content ol {
+          margin-left: 18px;
+          margin-bottom: 6px;
+        }
+        .message-content code {
+          background: #090d14;
+          color: #f43f5e;
+          padding: 1px 4px;
+          border-radius: 4px;
+          font-family: monospace;
+          font-size: 11px;
+        }
+        .message-content pre {
+          background: #090d14;
+          padding: 8px;
+          border-radius: 6px;
+          overflow-x: auto;
+          margin: 6px 0;
+        }
+        .message-content pre code {
+          color: #38bdf8;
+          padding: 0;
+          background: transparent;
+        }
+
+        /* Action Outcome Card */
+        .action-card {
+          margin-top: 8px;
+          padding: 9px 12px;
+          border-radius: 8px;
+          background: #162234;
+          border: 1px solid #23354c;
+          font-size: 11px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        }
+        .action-card-text {
+          color: #94a3b8;
+        }
+        .action-card-btn {
+          background: #2563eb;
+          color: white;
+          border: none;
+          padding: 4px 10px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 11px;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+        .action-card-btn.undo {
+          background: #475569;
+        }
+
+        /* Input Area */
+        .input-bar {
+          padding: 12px 14px;
+          background: #0c121e;
+          border-top: 1px solid #1e293b;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .input-row {
+          display: flex;
+          gap: 8px;
+          align-items: flex-end;
+        }
+        .prompt-input {
+          flex: 1;
+          background: #151d2a;
+          border: 1px solid #233044;
+          border-radius: 10px;
+          padding: 9px 12px;
+          color: #f8fafc;
+          font-size: 12px;
+          font-family: inherit;
+          resize: none;
+          max-height: 80px;
+          outline: none;
+          transition: border-color 0.15s;
+        }
+        .prompt-input:focus {
+          border-color: #0284c7;
+        }
+        .btn-send {
+          background: linear-gradient(135deg, #0284c7, #2563eb);
+          color: white;
+          border: none;
+          width: 36px;
+          height: 36px;
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          font-size: 14px;
+          transition: all 0.15s;
+        }
+        .btn-send:hover {
+          opacity: 0.9;
+          transform: scale(1.05);
+        }
+        .input-hints {
+          display: flex;
+          justify-content: space-between;
+          font-size: 10px;
+          color: #64748b;
+          padding: 0 4px;
+        }
+        .shortcut-tag {
+          background: #1e293b;
+          color: #94a3b8;
+          padding: 1px 4px;
+          border-radius: 3px;
+          font-family: monospace;
+        }
+
+        /* Loading Spinner */
+        .typing-indicator {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 8px 12px;
+        }
+        .typing-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: #38bdf8;
+          animation: typingPulse 1.2s infinite ease-in-out;
+        }
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typingPulse {
+          0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+          40% { transform: scale(1); opacity: 1; }
+        }
+      </style>
+
+      <!-- Floating Assistant Panel -->
+      <div id="assistant-panel" class="assistant-panel">
+        <div class="panel-header">
+          <div class="header-left">
+            <span class="header-title">⚡ SoroTrack AI</span>
+            <span id="header-model-badge" class="header-badge">Checking LLM...</span>
+          </div>
+          <div class="header-actions">
+            <button id="btn-toggle-settings" class="btn-icon" title="Local LLM Settings">⚙️</button>
+            <button id="btn-minimize-panel" class="btn-icon" title="Minimize">_</button>
+            <button id="btn-close-panel" class="btn-icon" title="Close">✕</button>
+          </div>
+        </div>
+
+        <!-- Settings Drawer -->
+        <div id="settings-drawer" class="settings-drawer">
+          <div class="setting-row">
+            <label class="setting-label">Local Ollama URL</label>
+            <input type="text" id="setting-url" class="setting-input" value="${assistantConfig.url || 'http://127.0.0.1:11434'}" placeholder="http://127.0.0.1:11434">
+          </div>
+          <div class="setting-row">
+            <label class="setting-label">Model Name</label>
+            <div style="display:flex;gap:6px;">
+              <input type="text" id="setting-model" class="setting-input" value="${assistantConfig.model || 'llama3.2'}" placeholder="e.g. llama3.2">
+              <button id="btn-fetch-models" class="btn-sm secondary" title="Fetch installed models from Ollama">Refresh</button>
+            </div>
+          </div>
+          <div class="setting-row">
+            <label class="setting-label">On-Page Trigger Style</label>
+            <select id="setting-orb-style" class="setting-select">
+              <option value="icon" ${assistantConfig.orbStyle !== 'pill' ? 'selected' : ''}>Little Icon (Compact 44px) - Default</option>
+              <option value="pill" ${assistantConfig.orbStyle === 'pill' ? 'selected' : ''}>Floating Pill (Icon + Label)</option>
+            </select>
+          </div>
+          <div style="font-size:10px;color:#94a3b8;margin:6px 0;line-height:1.4;background:#141c2a;padding:8px 10px;border-radius:6px;border:1px solid #1e293b;">
+            <div>🍎 <strong>Apple Mac Studio & macOS</strong>: Metal GPU inference supported. Toggle: <span class="shortcut-tag">⌥S</span></div>
+            <div style="margin-top:4px;">🪟 <strong>Windows PC</strong>: Local engine supported. Toggle: <span class="shortcut-tag">Alt+S</span></div>
+          </div>
+          <div class="setting-actions">
+            <button id="btn-test-connection" class="btn-sm">Test Connection</button>
+            <button id="btn-save-settings" class="btn-sm secondary">Save Settings</button>
+            <span id="setting-test-result" style="margin-left:auto;font-size:11px;align-self:center;"></span>
+          </div>
+        </div>
+
+        <!-- Quick Actions (Only actual features, example pins removed) -->
+        <div class="quick-actions">
+          <button id="chip-startups" class="chip">🚀 Research Startups</button>
+          <button id="chip-summarize" class="chip">⚡ Summarize Page</button>
+          <button id="chip-clean-ads" class="chip">🧹 Clean Popups</button>
+        </div>
+
+        <!-- Chat / Message Activity Feed -->
+        <div id="chat-feed" class="chat-feed">
+          <!-- Populated dynamically -->
+        </div>
+
+        <!-- Input Bar -->
+        <div class="input-bar">
+          <div class="input-row">
+            <textarea id="prompt-input" class="prompt-input" rows="1" placeholder="Ask: research startups, clean page, or anything..."></textarea>
+            <button id="btn-send" class="btn-send" title="Send (Enter)">➤</button>
+          </div>
+          <div class="input-hints">
+            <span>Press <span class="shortcut-tag">Enter</span> to send • <span class="shortcut-tag">${shortcutLabel}</span> toggles assistant</span>
+            <span id="llm-status-text" style="color:#10b981;">Local LLM Ready</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Floating Little Icon Trigger (Appears on every page of confirmed browsers) -->
+      <div id="assistant-orb" class="assistant-orb ${assistantConfig.orbStyle === 'pill' ? 'pill-mode' : ''}" title="SoroTrack Personal AI Assistant (Click to open, drag to move)">
+        <div class="assistant-orb-icon">⚡</div>
+        <span class="assistant-orb-text">SoroTrack AI</span>
+        <div id="assistant-status-dot" class="assistant-status-dot" title="Checking local LLM..."></div>
+        <div class="assistant-orb-tooltip">
+          <span>⚡ SoroTrack AI (${shortcutLabel}) • Click to open</span>
+        </div>
+      </div>
+    `;
+
+    renderMessages(shadow);
+  }
+
+  /**
+   * Updates status badge in header and orb
+   */
+  function updateAssistantStatusBadge() {
+    if (!assistantShadow) return;
+    const dot = assistantShadow.getElementById('assistant-status-dot');
+    const badge = assistantShadow.getElementById('header-model-badge');
+    const statusText = assistantShadow.getElementById('llm-status-text');
+
+    if (isLocalLLMOnline) {
+      if (dot) {
+        dot.className = 'assistant-status-dot online';
+        dot.title = `Connected to Local Ollama: ${assistantConfig.model || 'active'}`;
+      }
+      if (badge) {
+        badge.className = 'header-badge online';
+        badge.textContent = `● Ollama: ${assistantConfig.model || 'model'}`;
+      }
+      if (statusText) {
+        statusText.style.color = '#10b981';
+        statusText.textContent = `Ollama Online (${assistantConfig.model || 'active'})`;
+      }
+    } else {
+      if (dot) {
+        dot.className = 'assistant-status-dot';
+        dot.title = 'Local Ollama offline. Ensure `ollama serve` is running.';
+      }
+      if (badge) {
+        badge.className = 'header-badge';
+        badge.textContent = '○ Ollama Offline';
+      }
+      if (statusText) {
+        statusText.style.color = '#f59e0b';
+        statusText.textContent = 'Ollama Offline';
+      }
+    }
+  }
+
+  /**
+   * Toggles the assistant panel visibility
+   */
+  function toggleAssistantPanel(forceState) {
+    if (!assistantShadow) return;
+    const panel = assistantShadow.getElementById('assistant-panel');
+    if (!panel) return;
+
+    isAssistantOpen = typeof forceState === 'boolean' ? forceState : !isAssistantOpen;
+    if (isAssistantOpen) {
+      panel.classList.add('open');
+      const input = assistantShadow.getElementById('prompt-input');
+      if (input) setTimeout(() => input.focus(), 100);
+      checkLocalLLMStatus();
+    } else {
+      panel.classList.remove('open');
+    }
+  }
+
+  /**
+   * Renders messages in the chat feed
+   */
+  function renderMessages(shadow) {
+    const feed = shadow.getElementById('chat-feed');
+    if (!feed) return;
+
+    feed.innerHTML = assistantMessages.map((msg, idx) => {
+      const isUser = msg.role === 'user';
+      let contentHtml = escapeHtml(msg.content)
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\n\n/g, '</p><p>')
+        .replace(/\n/g, '<br/>');
+
+      let actionCardHtml = '';
+      if (msg.actionResult) {
+        const ar = msg.actionResult;
+        actionCardHtml = `
+          <div class="action-card">
+            <span class="action-card-text">${escapeHtml(ar.label || 'Action executed')}</span>
+            <button class="action-card-btn ${ar.canUndo ? 'undo' : ''}" data-action-id="${idx}">
+              ${ar.buttonLabel || (ar.canUndo ? 'Undo / Restore' : 'View')}
+            </button>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="message ${isUser ? 'user' : 'assistant'}">
+          <div class="message-content"><p>${contentHtml}</p></div>
+          ${actionCardHtml}
+        </div>
+      `;
+    }).join('');
+
+    // Attach click listener for action buttons
+    feed.querySelectorAll('.action-card-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const idx = parseInt(btn.getAttribute('data-action-id') || '0', 10);
+        const msg = assistantMessages[idx];
+        if (msg?.actionResult?.onAction) {
+          msg.actionResult.onAction();
+        } else if (msg?.actionResult?.type === 'minimalist') {
+          toggleMinimalistMode(false);
+        } else if (msg?.actionResult?.type === 'non-tech') {
+          restoreNonTechContent();
+        }
+      });
+    });
+
+    feed.scrollTop = feed.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    return (str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  /**
+   * Binds user event interactions with drag-and-drop position support
+   */
+  function bindAssistantEvents(shadow, host) {
+    const orb = shadow.getElementById('assistant-orb');
+    const btnClose = shadow.getElementById('btn-close-panel');
+    const btnMinimize = shadow.getElementById('btn-minimize-panel');
+    const btnToggleSettings = shadow.getElementById('btn-toggle-settings');
+    const settingsDrawer = shadow.getElementById('settings-drawer');
+    const btnSaveSettings = shadow.getElementById('btn-save-settings');
+    const btnTestConn = shadow.getElementById('btn-test-connection');
+    const btnFetchModels = shadow.getElementById('btn-fetch-models');
+    const promptInput = shadow.getElementById('prompt-input');
+    const btnSend = shadow.getElementById('btn-send');
+
+    // Quick action chips
+    const chipStartups = shadow.getElementById('chip-startups');
+    const chipSummarize = shadow.getElementById('chip-summarize');
+    const chipCleanAds = shadow.getElementById('chip-clean-ads');
+
+    // Drag-and-drop support for the Little Icon
+    let isDragging = false;
+    let startX = 0, startY = 0;
+    let initialRight = 24, initialBottom = 24;
+    let hasDragged = false;
+
+    if (orb && host) {
+      orb.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        isDragging = true;
+        hasDragged = false;
+        startX = e.clientX;
+        startY = e.clientY;
+        const rect = host.getBoundingClientRect();
+        initialRight = window.innerWidth - rect.right;
+        initialBottom = window.innerHeight - rect.bottom;
+
+        const onMouseMove = (moveEvt) => {
+          const deltaX = moveEvt.clientX - startX;
+          const deltaY = moveEvt.clientY - startY;
+          if (Math.hypot(deltaX, deltaY) > 5) {
+            hasDragged = true;
+            const newRight = Math.max(10, Math.min(window.innerWidth - 60, initialRight - deltaX));
+            const newBottom = Math.max(10, Math.min(window.innerHeight - 60, initialBottom - deltaY));
+            host.style.right = `${newRight}px`;
+            host.style.bottom = `${newBottom}px`;
+          }
+        };
+
+        const onMouseUp = () => {
+          isDragging = false;
+          window.removeEventListener('mousemove', onMouseMove);
+          window.removeEventListener('mouseup', onMouseUp);
+          if (hasDragged) {
+            try {
+              const rect = host.getBoundingClientRect();
+              localStorage.setItem('sorotrack_assistant_pos', JSON.stringify({
+                right: Math.round(window.innerWidth - rect.right),
+                bottom: Math.round(window.innerHeight - rect.bottom)
+              }));
+            } catch {}
+          }
+        };
+
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+      });
+    }
+
+    orb.addEventListener('click', (e) => {
+      if (hasDragged) {
+        hasDragged = false;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      toggleAssistantPanel();
+    });
+
+    btnClose.addEventListener('click', () => toggleAssistantPanel(false));
+    btnMinimize.addEventListener('click', () => toggleAssistantPanel(false));
+
+    btnToggleSettings.addEventListener('click', () => {
+      settingsDrawer.classList.toggle('open');
+    });
+
+    btnSaveSettings.addEventListener('click', () => {
+      const url = shadow.getElementById('setting-url').value.trim();
+      const model = shadow.getElementById('setting-model').value.trim();
+      const orbStyleSel = shadow.getElementById('setting-orb-style');
+      const orbStyle = orbStyleSel ? orbStyleSel.value : 'icon';
+
+      if (url) assistantConfig.url = url;
+      if (model) assistantConfig.model = model;
+      assistantConfig.orbStyle = orbStyle;
+
+      if (orbStyle === 'pill') {
+        orb.classList.add('pill-mode');
+      } else {
+        orb.classList.remove('pill-mode');
+      }
+
+      saveAssistantSettings();
+      checkLocalLLMStatus();
+      settingsDrawer.classList.remove('open');
+    });
+
+    btnTestConn.addEventListener('click', () => {
+      const testRes = shadow.getElementById('setting-test-result');
+      testRes.textContent = 'Testing Ollama...';
+      testRes.style.color = '#38bdf8';
+
+      const url = shadow.getElementById('setting-url').value.trim();
+      const model = shadow.getElementById('setting-model').value.trim();
+      if (url) assistantConfig.url = url;
+      if (model) assistantConfig.model = model;
+      saveAssistantSettings();
+
+      checkLocalLLMStatus((online, data) => {
+        if (online) {
+          testRes.textContent = data?.matchedModel ? `Connected ✓ (${data.matchedModel})` : (data?.message || 'Connected ✓');
+          testRes.style.color = '#10b981';
+        } else {
+          testRes.textContent = data?.error || 'Offline ✗';
+          testRes.style.color = '#ef4444';
+        }
+      });
+    });
+
+    btnFetchModels.addEventListener('click', () => {
+      const url = shadow.getElementById('setting-url').value.trim();
+      const modelInput = shadow.getElementById('setting-model');
+
+      browserAPI.runtime.sendMessage({
+        type: 'LOCAL_LLM_GET_MODELS',
+        payload: { provider: 'ollama', url }
+      }, (res) => {
+        if (res?.success && Array.isArray(res.models) && res.models.length > 0) {
+          modelInput.value = res.models[0];
+          assistantConfig.model = res.models[0];
+          detectedLocalModels = res.models;
+          saveAssistantSettings();
+          alert(`Ollama is active! Detected ${res.models.length} model(s):\n${res.models.join(', ')}`);
+        } else {
+          alert('Could not fetch models from Ollama. Make sure `ollama serve` is running at ' + (url || 'http://127.0.0.1:11434'));
+        }
+      });
+    });
+
+    // Prompt submit
+    const submitPrompt = () => {
+      const text = promptInput.value.trim();
+      if (!text) return;
+      promptInput.value = '';
+      handleUserPrompt(text);
+    };
+
+    btnSend.addEventListener('click', submitPrompt);
+    promptInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitPrompt();
+      }
+    });
+
+    // Quick Actions (Only active buttons, example pins removed)
+    if (chipStartups) {
+      chipStartups.addEventListener('click', () => {
+        handleUserPrompt('research all the startups listed here and summarize');
+      });
+    }
+
+    if (chipSummarize) {
+      chipSummarize.addEventListener('click', () => {
+        handleUserPrompt('provide an executive summary of this webpage');
+      });
+    }
+
+    if (chipCleanAds) {
+      chipCleanAds.addEventListener('click', () => {
+        handleUserPrompt('remove all ads, popups, and sticky banners');
+      });
+    }
+  }
+
+  /**
+   * Handles user requests via local LLM or direct DOM action
+   */
+  function handleUserPrompt(userPrompt) {
+    if (!assistantShadow) return;
+
+    // Add user message to feed
+    assistantMessages.push({ role: 'user', content: userPrompt });
+    renderMessages(assistantShadow);
+
+    const lower = userPrompt.toLowerCase();
+
+    // Check for "startups" research request
+    if (lower.includes('startup') && (lower.includes('research') || lower.includes('summar') || lower.includes('list') || lower.includes('all'))) {
+      executeStartupResearch(userPrompt);
+      return;
+    }
+
+    // Check for "non-tech" content removal
+    if ((lower.includes('non-tech') || lower.includes('non tech')) && (lower.includes('remove') || lower.includes('filter') || lower.includes('clean') || lower.includes('hide'))) {
+      executeRemoveNonTechContent();
+      return;
+    }
+
+    // Check for "minimalist" mode / remove graphics
+    if ((lower.includes('minimalist') || lower.includes('zen') || lower.includes('reader')) || (lower.includes('remove') && (lower.includes('graphic') || lower.includes('image')))) {
+      executeMinimalistMode();
+      return;
+    }
+
+    // Check for ads / popups removal
+    if (lower.includes('ad') || lower.includes('popup') || lower.includes('cookie') || lower.includes('banner')) {
+      executeCleanDistractions();
+      return;
+    }
+
+    // Check for restore / reset / undo
+    if (lower.includes('restore') || lower.includes('undo') || lower.includes('reset page')) {
+      restoreAllPageModifications();
+      return;
+    }
+
+    // General purpose query to Local LLM
+    executeGeneralLLMQuery(userPrompt);
+  }
+
+  /**
+   * Action 1: Research all startups on this page using Local LLM
+   */
+  function executeStartupResearch(userPrompt) {
+    showTypingIndicator();
+    const pageText = extractPageTextForLLM();
+    const targetUrl = (assistantConfig.url || 'http://127.0.0.1:11434').trim();
+
+    const systemPrompt = `You are an expert Silicon Valley tech investor and startup researcher. 
+The user is viewing a webpage and wants you to research and summarize all startups, companies, or tech products listed.
+Page Title: ${document.title}
+Page URL: ${window.location.href}
+
+Extracted Webpage Content:
+${pageText.slice(0, 10000)}
+
+Instructions:
+1. Identify all startups, companies, tech products, or founders mentioned on the page.
+2. For each startup, summarize:
+   - **Name**: Company name and link (if present)
+   - **Description**: What does the product do?
+   - **Value Proposition**: Problem solved and target audience
+   - **Tech Category**: (e.g. Generative AI, DevTools, SaaS, Fintech, Robotics)
+   - **Key Highlights**: Metrics, traction, investors, or unique angle
+3. Conclude with a brief 2-sentence synthesis of startup trends observed on this page.
+Keep the formatting crisp, structured, and easy to read.`;
+
+    browserAPI.runtime.sendMessage({
+      type: 'LOCAL_LLM_CHAT',
+      payload: {
+        provider: 'ollama',
+        url: targetUrl,
+        model: assistantConfig.model || 'llama3.2',
+        prompt: userPrompt || 'Research all the startups listed here and summarize.',
+        systemPrompt,
+        temperature: 0.2
+      }
+    }, (res) => {
+      hideTypingIndicator();
+      if (res?.success && res.content) {
+        highlightStartupEntitiesOnPage();
+        assistantMessages.push({
+          role: 'assistant',
+          content: res.content,
+          actionResult: {
+            label: 'Startup Intelligence Dossier Complete • Entities highlighted on page',
+            buttonLabel: 'Highlight Entities on Page',
+            canUndo: false,
+            onAction: () => highlightStartupEntitiesOnPage()
+          }
+        });
+      } else {
+        // Local Ollama fallback: parse directly from DOM with clear diagnostic
+        const fallbackAnalysis = generateFallbackStartupSummary();
+        const errDetail = res?.error ? ` (${res.error})` : '';
+        assistantMessages.push({
+          role: 'assistant',
+          content: `⚠️ **Local Ollama Notice**: Could not complete inferencing at \`${targetUrl}\`${errDetail}.\n\n* **Check**: Ensure \`ollama serve\` is running and model \`${assistantConfig.model || 'llama3.2'}\` is installed (\`ollama run ${assistantConfig.model || 'llama3.2'}\`).\n* You can verify or update the URL and model name anytime in **Settings** (⚙️).\n\n---\n**Synthesized On-Page DOM Analysis**:\n\n${fallbackAnalysis}`,
+          actionResult: {
+            label: 'Extracted via DOM Entity Parser',
+            buttonLabel: 'Highlight on Page',
+            onAction: () => highlightStartupEntitiesOnPage()
+          }
+        });
+      }
+      renderMessages(assistantShadow);
+    });
+  }
+
+  /**
+   * Action 2: Remove all non-tech content from the page
+   */
+  function executeRemoveNonTechContent() {
+    const techKeywords = [
+      'code', 'software', 'programming', 'python', 'javascript', 'typescript', 'rust', 'c++', 
+      'golang', 'java', 'sql', 'database', 'query', 'api', 'graphql', 'cloud', 'aws', 'gcp', 
+      'azure', 'docker', 'kubernetes', 'linux', 'devops', 'git', 'github', 'ai', 'ml', 
+      'machine learning', 'llm', 'neural', 'deep learning', 'model', 'algorithm', 'engineering', 
+      'framework', 'react', 'node', 'backend', 'frontend', 'latency', 'cache', 'cpu', 'gpu', 
+      'semiconductor', 'startup', 'saas', 'devtools', 'tech', 'computing', 'compiler', 'server',
+      'vector', 'transformer', 'agent', 'rag', 'open source', 'huggingface', 'vulnerability'
+    ];
+
+    const nonTechKeywords = [
+      'celebrity', 'horoscope', 'astrology', 'red carpet', 'royal family', 'gossip', 
+      'relationship advice', 'dating tips', 'recipe', 'diet plan', 'fashion week', 
+      'beauty routine', 'shopping deal', 'coupon code', 'sports score', 'football league', 
+      'basketball match', 'celebrity net worth', 'murder case', 'tabloid', 'clickbait'
+    ];
+
+    let removedCount = 0;
+    hiddenNonTechElements = [];
+
+    // Target major text/card containers
+    const candidates = document.querySelectorAll('article, section, div[class*="card"], div[class*="post"], div[class*="item"], li, p');
+    
+    candidates.forEach((el) => {
+      // Never touch our assistant or essential layout headers/navs
+      if (el.closest('#sorotrack-personal-assistant-host') || el.closest('#soro-history-hud-host')) return;
+      if (el.tagName === 'NAV' || el.tagName === 'HEADER' || el.tagName === 'FOOTER') return;
+      if (el.querySelector('pre, code')) return; // Always keep code snippets
+
+      const text = (el.innerText || '').toLowerCase();
+      if (text.length < 30) return;
+
+      const techScore = techKeywords.filter(k => text.includes(k)).length;
+      const nonTechScore = nonTechKeywords.filter(k => text.includes(k)).length;
+
+      // Filter element if high non-tech signal and zero tech signal
+      if (nonTechScore > 0 && techScore === 0) {
+        el.classList.add('sorotrack-hidden-non-tech');
+        hiddenNonTechElements.push(el);
+        removedCount++;
+      } else if (techScore === 0 && text.length > 100 && (text.includes('lifestyle') || text.includes('entertainment') || text.includes('gossip') || text.includes('shop'))) {
+        el.classList.add('sorotrack-hidden-non-tech');
+        hiddenNonTechElements.push(el);
+        removedCount++;
+      }
+    });
+
+    isTechFilterActive = true;
+    showPageBanner(`💻 Tech-Only Mode: Filtered ${removedCount} non-tech sections`, () => restoreNonTechContent());
+
+    assistantMessages.push({
+      role: 'assistant',
+      content: `I have filtered the webpage to **tech content only**.\n\n* **Filtered sections**: ${removedCount} non-tech blocks removed\n* **Preserved content**: All programming, software engineering, architecture, code snippets, and tech startup content remain intact.`,
+      actionResult: {
+        type: 'non-tech',
+        label: `Filtered ${removedCount} non-tech sections`,
+        buttonLabel: 'Undo / Restore Page',
+        canUndo: true,
+        onAction: () => restoreNonTechContent()
+      }
+    });
+    renderMessages(assistantShadow);
+  }
+
+  /**
+   * Action 3: Turn webpage into minimalist mode (remove graphics, heavy images)
+   */
+  function executeMinimalistMode() {
+    toggleMinimalistMode(true);
+
+    assistantMessages.push({
+      role: 'assistant',
+      content: `Turned webpage into **Minimalist Zen Mode**.\n\n* **Removed**: All heavy graphics, \`<img>\`, \`<video>\`, \`<canvas>\`, \`<svg>\`, and banners.\n* **Applied**: High-contrast, distraction-free reader typography centered in an optimal reading column.`,
+      actionResult: {
+        type: 'minimalist',
+        label: 'Minimalist Zen Mode is Active',
+        buttonLabel: 'Restore Original Page',
+        canUndo: true,
+        onAction: () => toggleMinimalistMode(false)
+      }
+    });
+    renderMessages(assistantShadow);
+  }
+
+  function toggleMinimalistMode(enable) {
+    isMinimalistActive = enable;
+    if (enable) {
+      document.documentElement.classList.add('sorotrack-minimalist-mode');
+      showPageBanner('📖 Minimalist Mode Active (Graphics & Heavy Images Stripped)', () => toggleMinimalistMode(false));
+    } else {
+      document.documentElement.classList.remove('sorotrack-minimalist-mode');
+      hidePageBanner();
+    }
+  }
+
+  function restoreNonTechContent() {
+    hiddenNonTechElements.forEach(el => {
+      if (el) el.classList.remove('sorotrack-hidden-non-tech');
+    });
+    hiddenNonTechElements = [];
+    isTechFilterActive = false;
+    hidePageBanner();
+    assistantMessages.push({
+      role: 'assistant',
+      content: 'Restored all original non-tech content on this page.'
+    });
+    renderMessages(assistantShadow);
+  }
+
+  /**
+   * Action 4: Clean ads and popups
+   */
+  function executeCleanDistractions() {
+    const selectors = [
+      '[class*="cookie"]', '[id*="cookie"]',
+      '[class*="consent"]', '[id*="consent"]',
+      '[class*="newsletter-modal"]', '[id*="newsletter-modal"]',
+      '[class*="subscribe-popup"]', '[id*="subscribe-popup"]',
+      '[class*="ad-banner"]', '[id*="ad-banner"]',
+      '[class*="advertisement"]', '[id*="advertisement"]',
+      '.overlay-backdrop', '.modal-backdrop'
+    ];
+
+    let removed = 0;
+    selectors.forEach(sel => {
+      document.querySelectorAll(sel).forEach(el => {
+        if (!el.closest('#sorotrack-personal-assistant-host')) {
+          el.style.setProperty('display', 'none', 'important');
+          removed++;
+        }
+      });
+    });
+
+    assistantMessages.push({
+      role: 'assistant',
+      content: `Cleaned **${removed} popup / ad / cookie banner elements** from the webpage.`
+    });
+    renderMessages(assistantShadow);
+  }
+
+  /**
+   * Action 5: General LLM query
+   */
+  function executeGeneralLLMQuery(prompt) {
+    showTypingIndicator();
+    const pageContext = extractPageTextForLLM();
+    const targetUrl = (assistantConfig.url || 'http://127.0.0.1:11434').trim();
+
+    const systemPrompt = `You are SoroTrack Personal Assistant. The user is browsing the webpage "${document.title}" (${window.location.href}).
+Extracted page context:
+${pageContext.slice(0, 8000)}
+
+Answer the user request accurately, concisely, and helpfully using information from this webpage and your general knowledge. Use markdown formatting.`;
+
+    browserAPI.runtime.sendMessage({
+      type: 'LOCAL_LLM_CHAT',
+      payload: {
+        provider: 'ollama',
+        url: targetUrl,
+        model: assistantConfig.model || 'llama3.2',
+        prompt,
+        systemPrompt,
+        temperature: assistantConfig.temperature
+      }
+    }, (res) => {
+      hideTypingIndicator();
+      if (res?.success && res.content) {
+        assistantMessages.push({
+          role: 'assistant',
+          content: res.content
+        });
+      } else {
+        assistantMessages.push({
+          role: 'assistant',
+          content: `⚠️ Could not query your local Ollama endpoint at \`${targetUrl}\`.\n\n* **Error**: ${res?.error || 'Connection refused'}\n* **Troubleshooting**: Verify Ollama is running (\`ollama serve\`) and model \`${assistantConfig.model || 'llama3.2'}\` is installed (\`ollama run ${assistantConfig.model || 'llama3.2'}\`). Check or change the endpoint URL in Settings (⚙️).`
+        });
+      }
+      renderMessages(assistantShadow);
+    });
+  }
+
+  function restoreAllPageModifications() {
+    toggleMinimalistMode(false);
+    restoreNonTechContent();
+    highlightedStartupSpans.forEach(span => {
+      const parent = span.parentNode;
+      if (parent) {
+        parent.replaceChild(document.createTextNode(span.textContent || ''), span);
+        parent.normalize();
+      }
+    });
+    highlightedStartupSpans = [];
+    hidePageBanner();
+    assistantMessages.push({
+      role: 'assistant',
+      content: 'Restored the page back to its original unmodified state.'
+    });
+    renderMessages(assistantShadow);
+  }
+
+  /**
+   * Shows floating top banner on page
+   */
+  function showPageBanner(text, onRestore) {
+    let banner = document.getElementById('sorotrack-page-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'sorotrack-page-banner';
+      banner.setAttribute('data-soro-ignore', 'true');
+      document.body.appendChild(banner);
+    }
+    banner.innerHTML = `
+      <span>${escapeHtml(text)}</span>
+      <button id="btn-banner-restore">Restore Page</button>
+    `;
+    const btn = banner.querySelector('#btn-banner-restore');
+    if (btn) btn.onclick = onRestore;
+  }
+
+  function hidePageBanner() {
+    const banner = document.getElementById('sorotrack-page-banner');
+    if (banner) banner.remove();
+  }
+
+  /**
+   * Extracts clean page text for LLM
+   */
+  function extractPageTextForLLM() {
+    const clone = document.body.cloneNode(true);
+    // Remove scripts, styles, host elements
+    clone.querySelectorAll('script, style, noscript, svg, iframe, #sorotrack-personal-assistant-host, #soro-history-hud-host').forEach(el => el.remove());
+    return (clone.innerText || '')
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  /**
+   * Highlights startup entities directly on page
+   */
+  function highlightStartupEntitiesOnPage() {
+    const headings = document.querySelectorAll('h1, h2, h3, h4, strong, b, a');
+    let count = 0;
+    headings.forEach(el => {
+      if (el.closest('#sorotrack-personal-assistant-host') || el.closest('#soro-history-hud-host')) return;
+      const text = (el.innerText || '').trim();
+      if (text.length >= 3 && text.length <= 35 && !text.includes(' ') && /^[A-Z][A-Za-z0-9]/.test(text)) {
+        if (!el.classList.contains('sorotrack-startup-highlight')) {
+          el.classList.add('sorotrack-startup-highlight');
+          el.title = `SoroTrack Identified Entity: ${text}`;
+          highlightedStartupSpans.push(el);
+          count++;
+        }
+      }
+    });
+  }
+
+  /**
+   * Fallback heuristic startup summary generator
+   */
+  function generateFallbackStartupSummary() {
+    const links = Array.from(document.querySelectorAll('a[href^="http"]'));
+    const externalLinks = links.filter(a => {
+      try {
+        const url = new URL(a.href);
+        return url.hostname !== window.location.hostname && !url.hostname.includes('twitter.com') && !url.hostname.includes('google.com');
+      } catch (e) { return false; }
+    });
+
+    const uniqueDomains = Array.from(new Set(externalLinks.map(a => {
+      try { return new URL(a.href).hostname.replace(/^www\./, ''); } catch (e) { return ''; }
+    }))).filter(Boolean).slice(0, 10);
+
+    return `### 🚀 Startups & Companies Detected on this Page:\n\n` + 
+      uniqueDomains.map((dom, i) => `${i + 1}. **${dom.split('.')[0].toUpperCase()}** (\`${dom}\`)\n   * Tech Domain: Technology / Software Platform\n   * Reference: [Visit Website](https://${dom})\n`).join('\n') +
+      `\n*Run \`ollama run llama3.2\` in your terminal for deeper autonomous inferencing.*`;
+  }
+
+  function showTypingIndicator() {
+    if (!assistantShadow) return;
+    const feed = assistantShadow.getElementById('chat-feed');
+    if (!feed) return;
+    const typing = document.createElement('div');
+    typing.id = 'typing-indicator';
+    typing.className = 'typing-indicator';
+    typing.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
+    feed.appendChild(typing);
+    feed.scrollTop = feed.scrollHeight;
+  }
+
+  function hideTypingIndicator() {
+    if (!assistantShadow) return;
+    const typing = assistantShadow.getElementById('typing-indicator');
+    if (typing) typing.remove();
+  }
+
   function init() {
     loadConfig();
 
-    // Do not inject HUD or scan during critical initial load.
-    // Allow X's React hydration 2.5 seconds to settle completely.
+    // 1. Initialize Personal Assistant on EVERY page immediately
+    initPersonalAssistant();
+
+    // 2. Specialized X history scan if allowed
     setTimeout(() => {
       createHud();
       handleRouteChange();
@@ -2338,10 +3778,19 @@
   loadConfig();
   initBookmarkEventListener();
 
-  // Graceful boot for HUD and timeline observer
-  if (document.readyState === 'complete') {
+  // Graceful boot for Personal Assistant and timeline observer on every webpage
+  let hasInited = false;
+  function safeInit() {
+    if (hasInited) return;
+    hasInited = true;
     init();
+  }
+
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    safeInit();
   } else {
-    window.addEventListener('load', init, { once: true });
+    document.addEventListener('DOMContentLoaded', safeInit, { once: true });
+    window.addEventListener('load', safeInit, { once: true });
   }
 })();
+

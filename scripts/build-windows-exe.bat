@@ -25,7 +25,7 @@ if "%CSC_EXE%"=="" (
 echo [*] Found C# Compiler: %CSC_EXE%
 echo [*] Compiling scripts\SoroTrackInstaller.cs into native Windows executable...
 
-"%CSC_EXE%" /nologo /target:winexe /optimize+ /out:"%~dp0SoroTrackInstaller.exe" "%~dp0SoroTrackInstaller.cs"
+"%CSC_EXE%" /nologo /target:winexe /optimize+ /r:System.dll,System.Windows.Forms.dll,System.Drawing.dll,System.Core.dll /out:"%~dp0SoroTrackInstaller.exe" "%~dp0SoroTrackInstaller.cs"
 
 if %ERRORLEVEL% NEQ 0 (
     echo.

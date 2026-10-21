@@ -23,18 +23,22 @@ import {
   ChevronUp,
   Zap,
   ShieldAlert,
-  Code
+  Code,
+  Bot,
+  Cpu,
+  Minimize2
 } from 'lucide-react';
 import { packageExtensionZip, packageInstallerZip, detectUserOS, downloadBlob } from '../lib/extensionPackager';
 import { ExtensionVersionInfo } from '../types';
 
-export type ExtensionDrawerTab = 'download' | 'setup' | 'backup';
+export type ExtensionDrawerTab = 'download' | 'assistant' | 'setup' | 'backup';
 
 interface ExtensionDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   defaultTab?: ExtensionDrawerTab;
   onOpenAdmin?: () => void;
+  onOpenBrowserInstall?: () => void;
   onExportJson?: () => void;
   onOpenImportJson?: (file?: File) => void;
   versionInfo?: ExtensionVersionInfo | null;
@@ -46,6 +50,7 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
   onClose,
   defaultTab = 'download',
   onOpenAdmin,
+  onOpenBrowserInstall,
   onExportJson,
   onOpenImportJson,
   versionInfo,
@@ -68,6 +73,62 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
   const [isPackaging, setIsPackaging] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [llmTestUrl, setLlmTestUrl] = useState('http://127.0.0.1:11434');
+  const [llmModelName, setLlmModelName] = useState('llama3.2');
+  const [detectedModels, setDetectedModels] = useState<string[]>([]);
+  const [llmTestStatus, setLlmTestStatus] = useState<{ testing: boolean; result?: string; success?: boolean }>({ testing: false });
+
+  const handleTestLocalLLM = async () => {
+    setLlmTestStatus({ testing: true });
+    try {
+      // 1. First probe via backend proxy to eliminate browser CORS blocks to 127.0.0.1
+      const proxyRes = await fetch('/api/ollama/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: llmTestUrl, model: llmModelName })
+      }).catch(() => null);
+
+      if (proxyRes && proxyRes.ok) {
+        const data = await proxyRes.json();
+        if (data.models && Array.isArray(data.models)) {
+          setDetectedModels(data.models);
+        }
+        setLlmTestStatus({
+          testing: false,
+          success: data.connected,
+          result: data.message
+        });
+        return;
+      }
+
+      // 2. Direct browser fetch fallback
+      const cleanUrl = llmTestUrl.replace(/\/+$/, '');
+      const res = await fetch(`${cleanUrl}/api/tags`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
+      if (res && res.ok) {
+        const data = await res.json();
+        const models = Array.isArray(data.models) ? data.models.map((m: any) => m.name || m.model) : [];
+        setDetectedModels(models);
+        const match = models.find((m: string) => m.toLowerCase().includes(llmModelName.toLowerCase()));
+        setLlmTestStatus({
+          testing: false,
+          success: true,
+          result: match 
+            ? `Connected to Ollama! Model '${match}' is verified and ready.`
+            : `Connected to Ollama (${models.length} model(s) installed: ${models.slice(0, 4).join(', ')}). Model '${llmModelName}' not found.`
+        });
+        return;
+      }
+
+      setLlmTestStatus({
+        testing: false,
+        success: false,
+        result: `Could not reach Ollama at ${llmTestUrl}. Ensure Ollama is running (\`ollama serve\`).`
+      });
+    } catch (err: any) {
+      setLlmTestStatus({ testing: false, success: false, result: err.message || 'Connection failed' });
+    }
+  };
 
   useEffect(() => {
     const os = detectUserOS();
@@ -167,18 +228,19 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
     handleCopyCommand(`brew install --formula "${origin}/api/extension/brew/sorotrack.rb"`, 'brew-direct');
   };
 
-  const handleDownloadInstaller = async (targetOS: 'windows' | 'mac') => {
+  const handleDownloadInstaller = async (targetOS: 'windows' | 'mac', format: 'zip' | 'tar' = 'zip') => {
     setIsPackaging(true);
     try {
       const latestVer = versionInfo?.latestVersion || '1.1.0';
-      const filename = `sorotrack-installer-${targetOS}-v${latestVer}.zip`;
+      const ext = format === 'tar' ? 'tar.gz' : 'zip';
+      const filename = `sorotrack-installer-${targetOS}-v${latestVer}.${ext}`;
 
-      // 1. Try server pre-generated installer zip
+      // 1. Try server pre-generated installer package
       try {
-        const res = await fetch(`/api/extension/installer?os=${targetOS}`);
+        const res = await fetch(`/api/extension/installer?os=${targetOS}&format=${format}`);
         if (res.ok) {
           const blob = await res.blob();
-          if (blob.size > 2000) {
+          if (blob.size > 1000) {
             downloadBlob(blob, filename);
             setDownloadSuccess(true);
             setTimeout(() => setDownloadSuccess(false), 3500);
@@ -186,7 +248,7 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
           }
         }
       } catch (serverErr) {
-        console.warn('Server installer zip download fallback to client packager:', serverErr);
+        console.warn('Server installer download fallback to client packager:', serverErr);
       }
 
       // 2. Client-side fallback
@@ -338,8 +400,21 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
             </button>
           </div>
 
-          {/* Navigation Tabs: Download | Installation Guide | Backup / JSON */}
+          {/* Navigation Tabs: AI Assistant | Download | Installation Guide | Backup / JSON */}
           <div className="px-6 py-3 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
+            <button
+              id="ext-tab-assistant"
+              onClick={() => setActiveTab('assistant')}
+              className={`flex-1 py-2 px-2.5 rounded-lg text-xs font-mono uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeTab === 'assistant'
+                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                  : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200'
+              }`}
+            >
+              <Bot className="w-3.5 h-3.5" />
+              <span>AI Assistant</span>
+            </button>
+
             <button
               id="ext-tab-download"
               onClick={() => setActiveTab('download')}
@@ -376,13 +451,249 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
               }`}
             >
               <FileJson className="w-3.5 h-3.5" />
-              <span>Import / Export</span>
+              <span>Backup</span>
             </button>
           </div>
 
           {/* Drawer Body Content */}
           <div className="p-6 overflow-y-auto flex-1 text-slate-800 text-xs leading-relaxed bg-white">
-            
+
+            {/* 0. PERSONAL AI ASSISTANT TAB */}
+            {activeTab === 'assistant' && (
+              <div className="space-y-6 animate-fade-in">
+                {/* Hero Card */}
+                <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 text-white shadow-md relative overflow-hidden">
+                  <div className="absolute top-0 right-0 translate-x-4 -translate-y-4 w-32 h-32 bg-blue-500/20 rounded-full blur-2xl pointer-events-none" />
+                  <div className="flex items-start justify-between gap-3 relative z-10">
+                    <div className="flex items-center gap-3">
+                      <div className="p-3 bg-blue-600/30 border border-blue-400/40 rounded-xl text-blue-400 shadow-inner">
+                        <Bot className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-base font-bold text-white font-sans">SoroTrack Personal AI Assistant</h3>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/30 text-blue-300 border border-blue-400/30 font-mono">v1.2.0</span>
+                        </div>
+                        <p className="text-slate-300 text-xs mt-0.5 font-sans">
+                          Runs on <strong>every webpage</strong> you visit, powered by your <strong>local LLM</strong> for 100% private inferencing.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-slate-700/60 flex flex-wrap items-center gap-3 text-[11px] text-slate-300">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span>Zero Cloud Latency</span>
+                    </span>
+                    <span>•</span>
+                    <span>Local Ollama Engine</span>
+                    <span>•</span>
+                    <span>Hotkey: <kbd className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-600 font-mono text-[10px]">Alt + S</kbd></span>
+                  </div>
+                </div>
+
+                {/* Flagship In-Page Commands Card (Only actual features, example pins removed) */}
+                <div className="border border-slate-200 rounded-xl p-5 bg-slate-50 space-y-4">
+                  <h4 className="text-xs font-bold text-slate-900 font-mono uppercase tracking-wider flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-blue-600" />
+                    <span>In-Page Capabilities</span>
+                  </h4>
+
+                  <div className="grid grid-cols-1 gap-3">
+                    {/* Command 1: Research Startups */}
+                    <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">🚀</span>
+                          <span className="font-bold text-slate-900 font-sans text-xs">Research &amp; Summarize Startups</span>
+                        </div>
+                        <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md font-mono border border-blue-200">Local Ollama</span>
+                      </div>
+                      <p className="text-slate-600 text-[11px]">
+                        Scans the webpage DOM for companies, projects, and founder mentions. Generates a structured intelligence dossier with value propositions, market category, and highlights entities directly on the page.
+                      </p>
+                      <div className="p-2 bg-slate-50 rounded-lg border border-slate-200 font-mono text-[11px] text-slate-800 flex items-center justify-between">
+                        <code>"research all the startups listed here and summarize"</code>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText("research all the startups listed here and summarize");
+                            setCopiedKey('cmd-1');
+                            setTimeout(() => setCopiedKey(null), 2000);
+                          }}
+                          className="text-slate-400 hover:text-slate-800 p-1"
+                          title="Copy prompt"
+                        >
+                          {copiedKey === 'cmd-1' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Command 2: Page Executive Summary */}
+                    <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">⚡</span>
+                          <span className="font-bold text-slate-900 font-sans text-xs">Executive Webpage Summary</span>
+                        </div>
+                        <span className="text-[10px] px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-md font-mono border border-emerald-200">Private AI</span>
+                      </div>
+                      <p className="text-slate-600 text-[11px]">
+                        Summarizes key insights, arguments, or data points from any active webpage or article into structured, bulleted executive notes.
+                      </p>
+                      <div className="p-2 bg-slate-50 rounded-lg border border-slate-200 font-mono text-[11px] text-slate-800 flex items-center justify-between">
+                        <code>"provide an executive summary of this webpage"</code>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText("provide an executive summary of this webpage");
+                            setCopiedKey('cmd-2');
+                            setTimeout(() => setCopiedKey(null), 2000);
+                          }}
+                          className="text-slate-400 hover:text-slate-800 p-1"
+                          title="Copy prompt"
+                        >
+                          {copiedKey === 'cmd-2' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Local Ollama Diagnostic & Connection Tester */}
+                <div className="border border-slate-200 rounded-xl p-5 bg-white shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-slate-900 font-mono uppercase tracking-wider flex items-center gap-1.5">
+                      <Cpu className="w-4 h-4 text-blue-600" />
+                      <span>Configure &amp; Test Local Ollama</span>
+                    </h4>
+                    <span className="text-[11px] font-medium text-slate-500 font-sans">Ollama Engine</span>
+                  </div>
+
+                  <p className="text-slate-600 text-[11px]">
+                    Specify your local Ollama URL and active model, then verify the connection:
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1 font-sans">
+                        Local Ollama URL
+                      </label>
+                      <input
+                        type="text"
+                        value={llmTestUrl}
+                        onChange={(e) => setLlmTestUrl(e.target.value)}
+                        placeholder="http://127.0.0.1:11434"
+                        className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1 font-sans">
+                        Model Name
+                      </label>
+                      <input
+                        type="text"
+                        value={llmModelName}
+                        onChange={(e) => setLlmModelName(e.target.value)}
+                        placeholder="llama3.2"
+                        className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleTestLocalLLM}
+                      disabled={llmTestStatus.testing}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-xs transition cursor-pointer flex items-center gap-1.5"
+                    >
+                      {llmTestStatus.testing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                      <span>{llmTestStatus.testing ? 'Testing...' : 'Test Connection'}</span>
+                    </button>
+                    {detectedModels.length > 0 && (
+                      <span className="text-[11px] text-slate-500 font-sans">
+                        {detectedModels.length} model(s) detected
+                      </span>
+                    )}
+                  </div>
+
+                  {llmTestStatus.result && (
+                    <div className={`p-3 rounded-lg text-xs border ${
+                      llmTestStatus.success 
+                        ? 'bg-emerald-50 text-emerald-900 border-emerald-200' 
+                        : 'bg-amber-50 text-amber-900 border-amber-200'
+                    }`}>
+                      {llmTestStatus.result}
+                    </div>
+                  )}
+
+                  {detectedModels.length > 0 && (
+                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1.5">
+                      <div className="text-[10px] font-bold text-slate-600 uppercase tracking-wider font-mono">
+                        Installed Models (Click to select):
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {detectedModels.map(m => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => {
+                              setLlmModelName(m);
+                            }}
+                            className={`px-2 py-1 rounded text-[11px] font-mono transition cursor-pointer border ${
+                              llmModelName === m 
+                                ? 'bg-blue-600 text-white border-blue-700 font-bold' 
+                                : 'bg-white text-slate-700 border-slate-300 hover:border-blue-400'
+                            }`}
+                          >
+                            {m}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Setup Commands Box */}
+                  <div className="mt-3 p-3 bg-slate-900 text-slate-200 rounded-xl font-mono text-[11px] space-y-2">
+                    <div className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Quick Start for Ollama (Terminal)</div>
+                    <div className="flex items-center justify-between bg-slate-950 p-2 rounded border border-slate-800">
+                      <code>ollama run {llmModelName || 'llama3.2'}</code>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(`ollama run ${llmModelName || 'llama3.2'}`);
+                          setCopiedKey('ollama-cmd');
+                          setTimeout(() => setCopiedKey(null), 2000);
+                        }}
+                        className="text-slate-400 hover:text-white"
+                        title="Copy command"
+                      >
+                        {copiedKey === 'ollama-cmd' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                      </button>
+                    </div>
+                    <p className="text-slate-400 text-[10px] font-sans">
+                      Runs locally on Apple Silicon (Metal acceleration) and Windows. No API keys or cloud tokens required.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Call to action to download updated extension */}
+                <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/70 flex items-center justify-between gap-4">
+                  <div>
+                    <h5 className="font-bold text-slate-900 text-xs font-sans">Ready to use the Assistant?</h5>
+                    <p className="text-slate-600 text-[11px] mt-0.5">
+                      Download and install SoroTrack v1.2.0 into your browsers to enable the assistant everywhere.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab('download')}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-xs transition cursor-pointer flex items-center gap-1.5 shrink-0"
+                  >
+                    <span>Download v1.2.0</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* 1. DOWNLOAD TAB */}
             {activeTab === 'download' && (
               <div className="space-y-6 animate-fade-in">
@@ -533,6 +844,34 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
                     </div>
                   </div>
 
+                  {/* Interactive Browser Detector & 1-Click Confirmation Banner */}
+                  {onOpenBrowserInstall && (
+                    <div className="p-4 rounded-xl bg-gradient-to-r from-blue-950/80 to-purple-950/80 border border-blue-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 rounded-xl bg-blue-600 text-white shrink-0 shadow-sm">
+                          <Zap className="w-5 h-5 text-amber-300" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-white font-sans flex items-center gap-2">
+                            <span>Detect Browsers &amp; Confirm Setup</span>
+                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-500/30 text-purple-200 font-mono font-bold">Mac Studio &amp; Windows</span>
+                          </div>
+                          <div className="text-[11px] text-slate-300 font-sans mt-0.5">
+                            Detects all browsers on your Apple Mac Studio or Windows PC and asks you to confirm where to install the Little Icon.
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={onOpenBrowserInstall}
+                        className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold font-sans transition cursor-pointer shrink-0 shadow-xs flex items-center justify-center gap-1.5"
+                      >
+                        <span>Open Detector</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+
                   {/* Primary OS Installer Action Cards */}
                   <div className="grid grid-cols-1 gap-3 pt-1">
                     
@@ -583,7 +922,7 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
                       </div>
                     </div>
 
-                    {/* Mac (macOS) Installer */}
+                    {/* Apple Mac Studio (macOS) Installer */}
                     <div className={`p-4 rounded-xl border transition-all ${
                       userOS === 'mac' 
                         ? 'bg-slate-800/90 border-emerald-500/50 ring-1 ring-emerald-500/30' 
@@ -595,8 +934,8 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
                             <Apple className="w-4 h-4" />
                           </div>
                           <div>
-                            <span className="font-sans font-bold text-sm text-white">macOS Installer</span>
-                            <span className="block text-[11px] text-slate-400">macOS 12+ (Edge, Chrome, Brave, Arc, Firefox)</span>
+                            <span className="font-sans font-bold text-sm text-white">Apple Mac Studio &amp; macOS Installer</span>
+                            <span className="block text-[11px] text-slate-400">Apple Silicon Metal (M1/M2/M3/M4 Max/Ultra) • Chrome, Edge, Brave, Arc, Firefox</span>
                           </div>
                         </div>
 
@@ -610,12 +949,23 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
                       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                         <button
                           id="drawer-download-mac-installer-btn"
-                          onClick={() => handleDownloadInstaller('mac')}
+                          onClick={() => handleDownloadInstaller('mac', 'zip')}
                           disabled={isPackaging}
                           className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-mono uppercase tracking-wider font-bold shadow-sm transition disabled:opacity-50 cursor-pointer"
                         >
                           <Download className={`w-3.5 h-3.5 ${isPackaging ? 'animate-bounce' : ''}`} />
                           <span>{isPackaging ? 'Packaging...' : 'Download for Mac (.zip)'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadInstaller('mac', 'tar')}
+                          disabled={isPackaging}
+                          className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg bg-slate-700/80 hover:bg-slate-700 text-slate-200 text-xs font-mono font-medium transition cursor-pointer border border-slate-600"
+                          title="Download native macOS .tar.gz archive (preserves +x executable permissions without format errors)"
+                        >
+                          <Download className="w-3.5 h-3.5 text-purple-300" />
+                          <span>.tar.gz</span>
                         </button>
 
                         <a
@@ -1179,23 +1529,23 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
                           <li className="flex items-start gap-3">
                             <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">3</span>
                             <div>
-                              <p className="font-semibold text-slate-900 font-sans">The Installer Does Everything Automatically:</p>
-                              <div className="mt-1 text-slate-600 font-sans space-y-1 text-xs">
+                              <p className="font-semibold text-slate-900 font-sans">Interactive Browser Detection &amp; Selection Wizard:</p>
+                              <div className="mt-1 text-slate-600 font-sans space-y-1.5 text-xs">
                                 <p className="flex items-center gap-1.5">
                                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                  <span>Scans for Microsoft Edge, Google Chrome, Brave, Arc, Firefox, Vivaldi, Opera.</span>
+                                  <span><strong>Scans &amp; detects all browsers:</strong> Microsoft Edge, Google Chrome, Brave, Arc, Firefox, Vivaldi, Opera.</span>
                                 </p>
                                 <p className="flex items-center gap-1.5">
                                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                  <span>Copies SoroTrack to permanent LocalAppData storage (safe from cleanup).</span>
+                                  <span><strong>User Confirmation Dialog:</strong> Choose exactly which browsers you want to install SoroTrack into.</span>
                                 </p>
                                 <p className="flex items-center gap-1.5">
                                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                  <span>Copies the folder path to your Windows clipboard.</span>
+                                  <span><strong>Restarts background instances:</strong> If Edge or Chrome is running with Startup Boost, the wizard safely closes and relaunches it so Chromium immediately recognizes the extension.</span>
                                 </p>
                                 <p className="flex items-center gap-1.5">
                                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                  <span>Creates desktop shortcuts and launches your browser with SoroTrack pre-loaded!</span>
+                                  <span><strong>Clipboard ready:</strong> Permanently installs files into LocalAppData and copies the folder path.</span>
                                 </p>
                               </div>
                             </div>
@@ -1204,10 +1554,15 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
                           <li className="flex items-start gap-3">
                             <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5">4</span>
                             <div>
-                              <p className="font-semibold text-slate-900 font-sans">If browser asks to Load Unpacked:</p>
+                              <p className="font-semibold text-slate-900 font-sans">Final 1-Step Activation in Browser:</p>
                               <p className="text-slate-600 mt-0.5 font-sans">
-                                Click <strong className="text-slate-900">&ldquo;Load unpacked&rdquo;</strong> and simply press <kbd className="px-1.5 py-0.5 rounded bg-slate-200 font-mono text-[11px] text-slate-800 border border-slate-300">Ctrl</kbd> + <kbd className="px-1.5 py-0.5 rounded bg-slate-200 font-mono text-[11px] text-slate-800 border border-slate-300">V</kbd> (the path is already on your clipboard!), then click Select.
+                                When your browser extension tab opens (<code className="font-mono text-[11px] bg-slate-200 px-1 py-0.5 rounded">edge://extensions</code> or <code className="font-mono text-[11px] bg-slate-200 px-1 py-0.5 rounded">chrome://extensions</code>):
                               </p>
+                              <div className="mt-1.5 p-2.5 rounded-lg bg-sky-50 border border-sky-200 text-sky-900 text-xs font-sans space-y-1">
+                                <p><strong>1.</strong> Turn ON <strong>&ldquo;Developer mode&rdquo;</strong> (toggle in top-right or sidebar).</p>
+                                <p><strong>2.</strong> Click <strong>&ldquo;Load unpacked&rdquo;</strong>.</p>
+                                <p><strong>3.</strong> Press <kbd className="px-1.5 py-0.5 rounded bg-white font-mono text-[11px] text-slate-800 border border-slate-300">Ctrl</kbd> + <kbd className="px-1.5 py-0.5 rounded bg-white font-mono text-[11px] text-slate-800 border border-slate-300">V</kbd> to paste the path and click <strong>&ldquo;Select Folder&rdquo;</strong>.</p>
+                              </div>
                             </div>
                           </li>
 
@@ -1266,23 +1621,63 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
                                 </p>
                               </div>
 
-                              {/* Apple Gatekeeper Warning Box & Instant Solutions */}
-                              <div className="p-3 rounded-lg bg-amber-50/80 border border-amber-300 text-slate-700 space-y-2 text-[11px] font-sans">
+                              {/* Apple Gatekeeper & Unsupported Format Warning Box & Instant Solutions */}
+                              <div className="p-3 rounded-lg bg-amber-50/90 border border-amber-300 text-slate-700 space-y-2 text-[11px] font-sans">
                                 <div className="flex items-start gap-1.5 font-bold text-amber-900">
                                   <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                                  <span>Got: &ldquo;Apple could not verify the downloadable file&rdquo;?</span>
+                                  <span>Got &ldquo;The file is in an unsupported format&rdquo; or &ldquo;Apple could not verify&rdquo;?</span>
                                 </div>
                                 <p className="text-slate-600 leading-relaxed text-[11px]">
-                                  This is standard macOS Gatekeeper behavior for all downloaded internet files without an Apple corporate certificate. Pick any of these quick fixes:
+                                  Safari and macOS Archive Utility often display &ldquo;unsupported format&rdquo; when attempting to auto-expand script files or when browser security marks files with quarantine. Pick any of these 100% working solutions:
                                 </p>
 
                                 <div className="space-y-2 pt-1 font-mono text-[10px]">
-                                  {/* Fix A: Homebrew */}
+                                  {/* Solution 1: Terminal 1-Liner (Most reliable) */}
+                                  <div className="p-2 rounded bg-white border border-purple-300 space-y-1">
+                                    <div className="flex items-center justify-between text-purple-900 font-bold font-sans">
+                                      <span className="flex items-center gap-1">
+                                        <Terminal className="w-3.5 h-3.5 text-purple-600" />
+                                        <span>Recommended: 1-Click Terminal Command (No Format Errors)</span>
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+                                          handleCopyCommand(`curl -sSL "${origin}/api/extension/installer/script?os=mac" | bash`, 'step-curl');
+                                        }}
+                                        className="text-purple-700 hover:text-purple-900 font-mono font-bold cursor-pointer"
+                                      >
+                                        {copiedKey === 'step-curl' ? 'Copied' : 'Copy Command'}
+                                      </button>
+                                    </div>
+                                    <code className="block bg-slate-900 text-purple-300 p-1.5 rounded break-all select-all">
+                                      curl -sSL &quot;{typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/api/extension/installer/script?os=mac&quot; | bash
+                                    </code>
+                                  </div>
+
+                                  {/* Solution 2: Run via sh in Terminal */}
+                                  <div className="p-2 rounded bg-white border border-amber-200 space-y-1">
+                                    <div className="flex items-center justify-between text-slate-800 font-bold font-sans">
+                                      <span>If you downloaded .command already: Run with `sh`</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCopyCommand('sh ~/Downloads/Install-SoroTrack.command', 'step-sh')}
+                                        className="text-slate-600 hover:text-slate-900 font-mono cursor-pointer"
+                                      >
+                                        {copiedKey === 'step-sh' ? 'Copied' : 'Copy'}
+                                      </button>
+                                    </div>
+                                    <code className="block bg-slate-100 p-1 rounded text-slate-800 break-all select-all">
+                                      sh ~/Downloads/Install-SoroTrack.command
+                                    </code>
+                                  </div>
+
+                                  {/* Solution 3: Homebrew */}
                                   <div className="p-2 rounded bg-white border border-amber-200 space-y-1">
                                     <div className="flex items-center justify-between text-amber-900 font-bold font-sans">
                                       <span className="flex items-center gap-1">
                                         <span>🍺</span>
-                                        <span>Method A: Homebrew (Bypasses verification completely)</span>
+                                        <span>Method C: Homebrew (Bypasses verification completely)</span>
                                       </span>
                                       <button
                                         type="button"
@@ -1300,27 +1695,10 @@ export const ExtensionDrawer: React.FC<ExtensionDrawerProps> = ({
                                     </code>
                                   </div>
 
-                                  {/* Fix B: Right Click Open */}
+                                  {/* Solution 4: Right Click Open */}
                                   <div className="p-2 rounded bg-white border border-amber-200 text-slate-700 font-sans leading-normal">
-                                    <strong className="text-slate-900 block font-semibold">Method B: Right-Click &ldquo;Open&rdquo; (Fast GUI fix)</strong>
+                                    <strong className="text-slate-900 block font-semibold">Method D: Right-Click &ldquo;Open&rdquo;</strong>
                                     Right-click (or Control-click) <code className="font-mono text-slate-800 text-[10px] bg-slate-100 px-1 rounded">Install-SoroTrack.command</code> in Finder &rarr; click <strong>Open</strong> &rarr; click <strong>Open</strong> on the prompt.
-                                  </div>
-
-                                  {/* Fix C: Terminal unquarantine */}
-                                  <div className="p-2 rounded bg-white border border-amber-200 space-y-1">
-                                    <div className="flex items-center justify-between text-slate-800 font-bold font-sans">
-                                      <span>Method C: Terminal Unquarantine (1 Command)</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleCopyCommand('xattr -cr ~/Downloads/sorotrack-installer-mac*', 'step-xattr')}
-                                        className="text-slate-600 hover:text-slate-900 font-mono cursor-pointer"
-                                      >
-                                        {copiedKey === 'step-xattr' ? 'Copied' : 'Copy Command'}
-                                      </button>
-                                    </div>
-                                    <code className="block bg-slate-100 p-1 rounded text-slate-800 break-all select-all">
-                                      xattr -cr ~/Downloads/sorotrack-installer-mac*
-                                    </code>
                                   </div>
                                 </div>
                               </div>

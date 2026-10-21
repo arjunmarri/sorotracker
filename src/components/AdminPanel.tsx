@@ -1938,7 +1938,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <a
                     id="admin-download-windows-installer"
                     href="/api/extension/installer?os=windows"
-                    download={`sorotrack-installer-windows-v${versionInfo?.latestVersion || '1.1.0'}.zip`}
+                    download={`sorotrack-installer-windows-v${versionInfo?.latestVersion || '1.2.0'}.zip`}
                     className="flex items-center justify-between p-3 rounded-lg border border-emerald-500/40 bg-emerald-50/50 hover:bg-emerald-100/70 dark:bg-emerald-950/20 dark:hover:bg-emerald-900/30 transition group"
                   >
                     <div className="flex items-center gap-2.5">

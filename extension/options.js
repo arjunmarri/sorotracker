@@ -60,8 +60,30 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 5000);
   }
 
-  // Load current values including user account
-  browserAPI.storage.local.get(['dashboardUrl', 'authToken', 'soro_user', 'autoSync', 'syncIntervalSec'], (res) => {
+  // Local LLM elements
+  const optLlmProvider = document.getElementById('opt-llm-provider');
+  const optLlmUrl = document.getElementById('opt-llm-url');
+  const optLlmModel = document.getElementById('opt-llm-model');
+  const optAssistantAutoOpen = document.getElementById('opt-assistant-auto-open');
+  const optFetchModelsBtn = document.getElementById('opt-fetch-models-btn');
+  const optTestLlmBtn = document.getElementById('opt-test-llm-btn');
+  const optLlmTestResult = document.getElementById('opt-llm-test-result');
+  const llmOptStatusBadge = document.getElementById('llm-opt-status-badge');
+
+  // Load current values including user account and local LLM settings
+  browserAPI.storage.local.get([
+    'dashboardUrl', 
+    'authToken', 
+    'soro_user', 
+    'autoSync', 
+    'syncIntervalSec',
+    'soro_local_llm_provider',
+    'soro_local_llm_ollama_url',
+    'soro_local_llm_lmstudio_url',
+    'soro_local_llm_custom_url',
+    'soro_local_llm_model',
+    'soro_assistant_auto_open'
+  ], (res) => {
     if (res) {
       if (res.dashboardUrl) dashboardUrlInput.value = res.dashboardUrl;
       if (res.authToken) authTokenInput.value = res.authToken;
@@ -72,8 +94,109 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       if (res.syncIntervalSec) syncIntervalSecInput.value = res.syncIntervalSec;
       updateOptionsAccountUI(res.soro_user || null);
+
+      // Local LLM settings
+      const provider = res.soro_local_llm_provider || 'ollama';
+      if (optLlmProvider) optLlmProvider.value = provider;
+      if (optLlmUrl) {
+        if (provider === 'ollama') optLlmUrl.value = res.soro_local_llm_ollama_url || 'http://127.0.0.1:11434';
+        else if (provider === 'lmstudio') optLlmUrl.value = res.soro_local_llm_lmstudio_url || 'http://127.0.0.1:1234/v1';
+        else optLlmUrl.value = res.soro_local_llm_custom_url || 'http://127.0.0.1:8080/v1';
+      }
+      if (optLlmModel) optLlmModel.value = res.soro_local_llm_model || 'llama3.2';
+      if (optAssistantAutoOpen) optAssistantAutoOpen.checked = Boolean(res.soro_assistant_auto_open);
+
+      checkLocalLLMOptionsStatus();
     }
   });
+
+  optLlmProvider?.addEventListener('change', () => {
+    const prov = optLlmProvider.value;
+    if (prov === 'ollama') optLlmUrl.value = 'http://127.0.0.1:11434';
+    else if (prov === 'lmstudio') optLlmUrl.value = 'http://127.0.0.1:1234/v1';
+    else optLlmUrl.value = 'http://127.0.0.1:8080/v1';
+  });
+
+  function checkLocalLLMOptionsStatus() {
+    const provider = optLlmProvider ? optLlmProvider.value : 'ollama';
+    const customUrl = optLlmUrl ? optLlmUrl.value.trim() : '';
+
+    browserAPI.runtime.sendMessage({
+      type: 'LOCAL_LLM_CHECK',
+      payload: { provider, customUrl }
+    }, (res) => {
+      if (res?.online) {
+        if (llmOptStatusBadge) {
+          llmOptStatusBadge.textContent = `● Online (${res.models?.length || 0} models)`;
+          llmOptStatusBadge.style.color = '#10b981';
+          llmOptStatusBadge.style.background = 'rgba(16, 185, 129, 0.15)';
+        }
+      } else {
+        if (llmOptStatusBadge) {
+          llmOptStatusBadge.textContent = '○ Offline';
+          llmOptStatusBadge.style.color = '#f59e0b';
+          llmOptStatusBadge.style.background = 'rgba(245, 158, 11, 0.15)';
+        }
+      }
+    });
+  }
+
+  optFetchModelsBtn?.addEventListener('click', () => {
+    const url = (optLlmUrl?.value || 'http://127.0.0.1:11434').trim();
+
+    if (optLlmTestResult) {
+      optLlmTestResult.textContent = 'Querying Ollama models...';
+      optLlmTestResult.style.color = '#38bdf8';
+    }
+
+    browserAPI.runtime.sendMessage({
+      type: 'LOCAL_LLM_GET_MODELS',
+      payload: { provider: 'ollama', url }
+    }, (res) => {
+      if (res?.success && Array.isArray(res.models) && res.models.length > 0) {
+        if (optLlmModel) optLlmModel.value = res.models[0];
+        if (optLlmTestResult) {
+          optLlmTestResult.textContent = `Found ${res.models.length} model(s): ${res.models.join(', ')}`;
+          optLlmTestResult.style.color = '#10b981';
+        }
+      } else {
+        if (optLlmTestResult) {
+          optLlmTestResult.textContent = 'Could not find models. Ensure `ollama serve` is active.';
+          optLlmTestResult.style.color = '#ef4444';
+        }
+      }
+    });
+  });
+
+  optTestLlmBtn?.addEventListener('click', () => {
+    const customUrl = (optLlmUrl?.value || 'http://127.0.0.1:11434').trim();
+    const model = (optLlmModel?.value || 'llama3.2').trim();
+
+    if (optLlmTestResult) {
+      optLlmTestResult.textContent = 'Testing Ollama connection...';
+      optLlmTestResult.style.color = '#38bdf8';
+    }
+
+    browserAPI.runtime.sendMessage({
+      type: 'LOCAL_LLM_CHECK',
+      payload: { provider: 'ollama', url: customUrl, model }
+    }, (res) => {
+      if (res?.online) {
+        if (optLlmTestResult) {
+          optLlmTestResult.textContent = res.matchedModel ? `Connected to Ollama! Model '${res.matchedModel}' ready ✓` : (res.message || 'Connected to Ollama ✓');
+          optLlmTestResult.style.color = '#10b981';
+        }
+        checkLocalLLMOptionsStatus();
+      } else {
+        if (optLlmTestResult) {
+          optLlmTestResult.textContent = res?.message || 'Connection failed. Ensure Ollama is running (`ollama serve`) ✗';
+          optLlmTestResult.style.color = '#ef4444';
+        }
+        checkLocalLLMOptionsStatus();
+      }
+    });
+  });
+
 
   // Account login in options
   optionsAccountLoginBtn?.addEventListener('click', async () => {
@@ -195,14 +318,29 @@ document.addEventListener('DOMContentLoaded', () => {
     const autoSync = autoSyncInput.checked;
     const syncIntervalSec = parseInt(syncIntervalSecInput.value, 10) || 5;
 
-    browserAPI.storage.local.set({
+    const llmProvider = optLlmProvider ? optLlmProvider.value : 'ollama';
+    const llmUrl = optLlmUrl ? optLlmUrl.value.trim() : '';
+    const llmModel = optLlmModel ? optLlmModel.value.trim() : 'llama3.2';
+    const autoOpenAssistant = optAssistantAutoOpen ? optAssistantAutoOpen.checked : false;
+
+    const toStore = {
       dashboardUrl,
       authToken,
       autoSync,
-      syncIntervalSec
-    }, () => {
+      syncIntervalSec,
+      soro_local_llm_provider: llmProvider,
+      soro_local_llm_model: llmModel,
+      soro_assistant_auto_open: autoOpenAssistant
+    };
+
+    if (llmProvider === 'ollama') toStore.soro_local_llm_ollama_url = llmUrl;
+    else if (llmProvider === 'lmstudio') toStore.soro_local_llm_lmstudio_url = llmUrl;
+    else toStore.soro_local_llm_custom_url = llmUrl;
+
+    browserAPI.storage.local.set(toStore, () => {
       statusMsg.style.color = '#10b981';
       statusMsg.textContent = 'Settings saved!';
+      checkLocalLLMOptionsStatus();
       setTimeout(() => {
         statusMsg.textContent = '';
       }, 3000);

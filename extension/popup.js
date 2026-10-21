@@ -206,6 +206,46 @@ document.addEventListener('DOMContentLoaded', () => {
   // Trigger check on load
   checkVersionForPopup();
 
+  // Personal Assistant on Active Tab
+  const popupOpenAssistantBtn = document.getElementById('popup-open-assistant-btn');
+  const popupLlmBadge = document.getElementById('popup-llm-badge');
+
+  browserAPI.runtime.sendMessage({ type: 'LOCAL_LLM_CHECK', payload: { provider: 'auto' } }, (res) => {
+    if (popupLlmBadge) {
+      if (res?.online) {
+        popupLlmBadge.textContent = `● ${res.provider}: ${res.models?.length || 0} models`;
+        popupLlmBadge.style.color = '#10b981';
+        popupLlmBadge.style.background = 'rgba(16, 185, 129, 0.15)';
+      } else {
+        popupLlmBadge.textContent = '○ Local LLM Offline';
+        popupLlmBadge.style.color = '#f59e0b';
+        popupLlmBadge.style.background = 'rgba(245, 158, 11, 0.15)';
+      }
+    }
+  });
+
+  popupOpenAssistantBtn?.addEventListener('click', () => {
+    browserAPI.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs && tabs[0] && tabs[0].id) {
+        browserAPI.scripting?.executeScript?.({
+          target: { tabId: tabs[0].id },
+          func: () => {
+            const host = document.getElementById('sorotrack-personal-assistant-host');
+            if (host && host.shadowRoot) {
+              const panel = host.shadowRoot.getElementById('assistant-panel');
+              if (panel) {
+                panel.classList.toggle('open');
+                const input = host.shadowRoot.getElementById('prompt-input');
+                if (input && panel.classList.contains('open')) setTimeout(() => input.focus(), 100);
+              }
+            }
+          }
+        });
+        window.close();
+      }
+    });
+  });
+
   // Dismiss upgrade alert
   upgradeDismissBtn?.addEventListener('click', () => {
     if (upgradeAlertCard) upgradeAlertCard.style.display = 'none';
