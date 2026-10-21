@@ -10,7 +10,8 @@
 
   let saved = { ...DEFAULT_SETTINGS }; // last saved settings, for fields this page doesn't show
   let hiddenSites = [];
-  let apiKeys = {}; // edited keys per provider, saved with the form
+  let pendingKeys = {}; // keys typed on this page, not yet saved
+  let savedKeys = {}; // provider -> last 4 characters of the saved key (the page never gets the key itself)
   let modelChoice = { local: '', cloud: {} }; // model picked per connection while editing
   let testRun = 0;
 
@@ -58,8 +59,7 @@
     $('cloudFields').hidden = !cloud;
     const provider = S.cloudProvider($('cloudProvider').value);
     $('customBaseUrlField').hidden = provider.id !== 'custom';
-    $('cloudKey').value = apiKeys[provider.id] || '';
-    $('cloudKey').placeholder = provider.keyPlaceholder || 'API key';
+    showKeyField();
     $('keyLink').hidden = !provider.keyUrl;
     if (provider.keyUrl) $('keyLink').href = provider.keyUrl;
     $('cloudName').textContent = provider.id === 'custom' ? 'that API' : provider.label;
@@ -69,6 +69,18 @@
     setModelOptions([], chosenModel());
     $('result').hidden = true;
   }
+
+  function showKeyField() {
+    const id = $('cloudProvider').value;
+    const provider = S.cloudProvider(id);
+    $('cloudKey').value = pendingKeys[id] || '';
+    $('cloudKey').placeholder = savedKeys[id]
+      ? `Saved key ending in …${savedKeys[id]} — paste a new key to replace it`
+      : provider.keyPlaceholder || 'API key';
+    $('removeKey').hidden = !savedKeys[id];
+  }
+
+  const hasKey = (id) => Boolean(pendingKeys[id] || savedKeys[id]);
 
   function setModelOptions(models, selected, suggested = '') {
     const select = $('model');
@@ -118,11 +130,12 @@
   async function testConnection() {
     const form = readForm();
     const run = ++testRun;
-    const connection = S.resolveConnection(form, apiKeys);
+    const connection = S.resolveConnection(form);
     showResult('connecting', `Connecting to ${connection.cloud ? connection.label : form.baseUrl}…`);
     $('test').disabled = true;
     try {
-      const res = await ext.runtime.sendMessage({ type: 'llm:status', overrides: { settings: form, apiKeys } });
+      // Typed keys are tested before saving; otherwise the background uses the saved, encrypted key.
+      const res = await ext.runtime.sendMessage({ type: 'llm:status', overrides: { settings: form, apiKeys: { ...pendingKeys } } });
       if (run !== testRun) return; // a newer test started (source or provider changed)
       if (!res || res.ok === false) {
         showResult('offline', (res && res.error) || 'Connection failed.', res && res.hint);
@@ -161,16 +174,18 @@
   for (const radio of document.querySelectorAll('input[name="source"]')) {
     radio.addEventListener('change', () => {
       showSource();
-      if (source() === 'local' || apiKeys[$('cloudProvider').value]) testConnection();
+      if (source() === 'local' || hasKey($('cloudProvider').value)) testConnection();
     });
   }
   $('cloudProvider').addEventListener('change', () => {
     showSource();
-    if (apiKeys[$('cloudProvider').value]) testConnection();
+    if (hasKey($('cloudProvider').value)) testConnection();
   });
 
   $('cloudKey').addEventListener('input', () => {
-    apiKeys[$('cloudProvider').value] = $('cloudKey').value.trim();
+    const value = $('cloudKey').value.trim();
+    if (value) pendingKeys[$('cloudProvider').value] = value;
+    else delete pendingKeys[$('cloudProvider').value];
   });
   $('cloudKey').addEventListener('change', () => {
     if ($('cloudKey').value.trim()) testConnection();
@@ -181,18 +196,38 @@
     $('toggleKey').textContent = show ? 'Hide' : 'Show';
   });
 
+  $('removeKey').addEventListener('click', async () => {
+    const id = $('cloudProvider').value;
+    if (!confirm(`Remove the saved ${S.cloudProvider(id).label} API key from this browser?`)) return;
+    const res = await ext.runtime.sendMessage({ type: 'keys:remove', provider: id });
+    if (res && res.ok) savedKeys = res.keys;
+    delete pendingKeys[id];
+    showKeyField();
+    $('result').hidden = true;
+  });
+
   $('test').addEventListener('click', testConnection);
 
   $('form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    await S.saveApiKeys(apiKeys);
+    if (Object.keys(pendingKeys).length) {
+      const res = await ext.runtime.sendMessage({ type: 'keys:set', keys: pendingKeys });
+      if (!res || !res.ok) {
+        $('saved').textContent = `Couldn't save the API key: ${(res && res.error) || 'unknown error'}`;
+        return;
+      }
+      savedKeys = res.keys;
+      pendingKeys = {};
+      showKeyField();
+    }
     saved = await S.saveSettings(readForm());
     $('saved').textContent = 'Saved.';
     setTimeout(() => ($('saved').textContent = ''), 2500);
   });
 
-  Promise.all([S.getSettings(), S.getApiKeys()]).then(([settings, keys]) => {
-    apiKeys = keys;
+  Promise.all([S.getSettings(), ext.runtime.sendMessage({ type: 'keys:describe' })]).then(([settings, res]) => {
+    savedKeys = (res && res.keys) || {};
+    const keys = savedKeys;
     fillForm(settings);
     if (settings.source !== 'cloud' || keys[settings.cloudProvider]) testConnection();
   });

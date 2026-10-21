@@ -18,7 +18,7 @@
     model: '',
     apiKey: '',
 
-    // Cloud provider (API keys are stored separately, see getApiKeys)
+    // Cloud provider (API keys are stored encrypted by the background worker, see background/secrets.js)
     cloudProvider: 'anthropic',
     cloudModels: {}, // provider id -> chosen model
     customBaseUrl: '',
@@ -188,20 +188,6 @@
     return next;
   }
 
-  // Cloud API keys live under their own storage key so page-facing code that reads settings
-  // never handles them; only the background worker and the settings page read this.
-  async function getApiKeys() {
-    const stored = await ext.storage.local.get('apiKeys');
-    return { ...(stored.apiKeys || {}) };
-  }
-
-  async function saveApiKeys(patch) {
-    const next = { ...(await getApiKeys()), ...patch };
-    for (const id of Object.keys(next)) if (!next[id]) delete next[id];
-    await ext.storage.local.set({ apiKeys: next });
-    return next;
-  }
-
   Object.assign(SoroTrack, {
     ext,
     DEFAULT_SETTINGS,
@@ -213,7 +199,5 @@
     modelPatch,
     getSettings,
     saveSettings,
-    getApiKeys,
-    saveApiKeys,
   });
 })(globalThis);

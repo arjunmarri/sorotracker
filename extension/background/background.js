@@ -3,7 +3,11 @@
 (function () {
   'use strict';
 
-  const { ext, getSettings, getApiKeys, resolveConnection, listModels, chat, normalizeBaseUrl } = globalThis.SoroTrack;
+  const { ext, getSettings, resolveConnection, listModels, chat, normalizeBaseUrl, createSecretStore } = globalThis.SoroTrack;
+
+  const secrets = createSecretStore();
+  // Keys saved in plain text by 2.1.0 are encrypted and removed from chrome.storage on first run.
+  const migrated = secrets.migrateFrom(ext.storage.local).catch((err) => console.warn('[SoroTrack] Key migration failed:', err));
 
   // ---------------------------------------------------------------------------
   // Origin rewriting
@@ -72,9 +76,11 @@
   const apiCache = new Map(); // local baseUrl -> 'ollama' | 'openai' (for "auto" detection)
 
   // overrides: { settings, apiKeys } — lets the settings page test values before saving them.
+  // Callers must only pass overrides that came from an extension page (see fromExtensionPage).
   async function getConnection(overrides = {}) {
+    await migrated;
     const settings = { ...(await getSettings()), ...(overrides.settings || {}) };
-    const apiKeys = { ...(await getApiKeys()), ...(overrides.apiKeys || {}) };
+    const apiKeys = { ...(await secrets.getAll()), ...(overrides.apiKeys || {}) };
     const connection = resolveConnection(settings, apiKeys);
     // Only local servers need the Origin rewrite; hosted APIs accept extension requests.
     if (!connection.cloud) await ensureOriginRewrite(normalizeBaseUrl(connection.baseUrl));
@@ -165,8 +171,42 @@
   // One-shot messages from content scripts and extension pages
   // ---------------------------------------------------------------------------
 
+  // True for SoroTrack's own pages (settings, popup, snippets); false for content scripts in web pages.
+  function fromExtensionPage(sender) {
+    return Boolean(sender && sender.id === ext.runtime.id && (sender.url || '').startsWith(extensionBase));
+  }
+
+  function requireExtensionPage(sender) {
+    if (!fromExtensionPage(sender)) throw new Error('Not allowed from a web page.');
+  }
+
+  // Bumped whenever keys change, so open pages can reconnect without ever seeing a key.
+  const announceKeysChanged = () => ext.storage.local.set({ keysVersion: Date.now() });
+
   const handlers = {
-    'llm:status': (msg) => getStatus(msg.overrides || {}),
+    // Only extension pages may test unsaved values: overrides can redirect a key to another URL.
+    'llm:status': (msg, sender) => getStatus(fromExtensionPage(sender) ? msg.overrides || {} : {}),
+    'keys:describe': async (msg, sender) => {
+      requireExtensionPage(sender);
+      await migrated;
+      return { ok: true, keys: await secrets.describe() };
+    },
+    'keys:set': async (msg, sender) => {
+      requireExtensionPage(sender);
+      await migrated;
+      for (const [provider, key] of Object.entries(msg.keys || {})) {
+        if (typeof key === 'string' && key.trim()) await secrets.set(provider, key);
+      }
+      await announceKeysChanged();
+      return { ok: true, keys: await secrets.describe() };
+    },
+    'keys:remove': async (msg, sender) => {
+      requireExtensionPage(sender);
+      await migrated;
+      await secrets.remove(String(msg.provider || ''));
+      await announceKeysChanged();
+      return { ok: true, keys: await secrets.describe() };
+    },
     'open:snippets': () => ext.tabs.create({ url: ext.runtime.getURL('pages/snippets.html') }),
     'open:options': () => ext.runtime.openOptionsPage(),
   };
@@ -239,7 +279,7 @@
   // Keep the Firefox rewrite target current even before the first request after a restart.
   getConnection().catch(() => {});
   ext.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && (changes.settings || changes.apiKeys)) {
+    if (area === 'local' && (changes.settings || changes.keysVersion)) {
       apiCache.clear();
       getConnection().catch(() => {});
     }

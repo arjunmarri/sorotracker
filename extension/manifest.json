@@ -2,13 +2,13 @@
   "manifest_version": 3,
   "name": "SoroTrack — AI Page Assistant",
   "short_name": "SoroTrack",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "A page assistant powered by your local LLM (Ollama, LM Studio…) or your own API key (Claude, OpenAI, Gemini…). Summarize pages, save snippets, remove AI slop.",
   "permissions": ["storage", "unlimitedStorage", "contextMenus", "scripting", "activeTab", "declarativeNetRequestWithHostAccess"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background/sw.js",
-    "scripts": ["shared/config.js", "shared/markdown.js", "background/llm.js", "background/background.js"]
+    "scripts": ["shared/config.js", "shared/markdown.js", "background/llm.js", "background/secrets.js", "background/background.js"]
   },
   "content_scripts": [
     {

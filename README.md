@@ -90,7 +90,8 @@ You can hide the button on a site from the assistant's **⋯** menu. Settings le
 
 - All model requests come from the background worker, so page Content Security Policies and mixed-content rules don't block them.
 - Three wire formats cover every provider: Ollama's native API, OpenAI chat completions (local servers and most cloud APIs), and Anthropic's Messages API. Claude requests send the system prompt as `system`, skip `temperature` (current Claude models don't accept it) and use `effort: low` for speed. Current models also opt in to server-side refusal fallbacks. If an OpenAI reasoning model rejects a custom temperature, the request is retried without it.
-- **API keys** are stored in the browser's extension storage on this device, under their own storage key, separate from the settings the page scripts load. Each key is sent only to its own provider. Anyone with access to your browser profile could read them, as with any extension that stores keys.
+- **API keys** are encrypted at rest with AES-256-GCM. The encryption key is a non-extractable WebCrypto key: the browser can use it, but no script can read its bytes. Both the key and the ciphertext live in the extension's own IndexedDB, which websites, SoroTrack's page-side scripts and other extensions can't open. Only the background worker decrypts keys, and it sends each key only to its own provider. The settings page never receives a saved key back; it shows only the last four characters. Key changes are announced with a version number, never the key itself. Messages that read or change keys, or test unsaved settings, are accepted only from SoroTrack's own pages. Keys saved in plain text by 2.1.0 are migrated automatically on first run.
+  - *Limits:* this protects against websites, other extensions, and copies or backups of extension storage. It can't stop malware running as your user account, which could control the browser itself. Treat API keys like passwords: give them a spending limit and revoke them if a device is lost.
 - **Ollama and 403 errors:** Ollama rejects requests from `chrome-extension://` and `moz-extension://` origins by default. SoroTrack rewrites the `Origin` header to the server's own origin, which Ollama always accepts. This applies only to the extension's own background requests: Chrome uses a session `declarativeNetRequest` rule and Firefox uses `webRequest`. Requests from web pages are never changed, so you don't need to set `OLLAMA_ORIGINS`.
 - Reasoning models (Qwen3, DeepSeek-R1, Gemma 4…) run with thinking turned off for speed, and any `<think>` output is removed. You can turn thinking on in settings.
 - Settings, keys and snippets are stored in `chrome.storage.local` on your machine (one key per snippet, so saves from several tabs can't overwrite each other).
@@ -100,7 +101,7 @@ You can hide the button on a site from the assistant's **⋯** menu. Settings le
 ```
 extension/
   manifest.json        base manifest; the build writes per-browser variants
-  background/          sw.js (Chrome entry) · background.js (routing, menus, Origin rewrite) · llm.js (Ollama, OpenAI-compatible and Anthropic client)
+  background/          sw.js (Chrome entry) · background.js (routing, menus, Origin rewrite) · llm.js (Ollama, OpenAI-compatible and Anthropic client) · secrets.js (encrypted API keys)
   content/             assistant.js (panel UI and tasks) · extract.js (readable text, content blocks) · styles.js
   shared/              config.js (settings) · prompts.js · markdown.js (safe renderer) · snippets.js
   pages/               popup, options and snippets pages

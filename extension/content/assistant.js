@@ -713,7 +713,7 @@
 
   ext.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (changes.apiKeys) {
+    if (changes.keysVersion) {
       if (isOpen()) connect();
       return;
     }

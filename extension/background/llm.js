@@ -69,7 +69,8 @@
       throw new LLMError('bad_url', 'No API URL set.', 'Enter the base URL of your OpenAI-compatible API in settings.');
     }
     if (!conn.apiKey) {
-      throw new LLMError('no_key', `Add your ${conn.label} API key to use it.`, 'Open SoroTrack settings and paste a key.');
+      const what = /API$/.test(conn.label) ? `${conn.label} key` : `${conn.label} API key`;
+      throw new LLMError('no_key', `Add your ${what} to use it.`, 'Open SoroTrack settings and paste a key.');
     }
   }
 
