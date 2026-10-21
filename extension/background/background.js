@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const { ext, getSettings, listModels, chat, normalizeBaseUrl } = globalThis.SoroTrack;
+  const { ext, getSettings, getApiKeys, resolveConnection, listModels, chat, normalizeBaseUrl } = globalThis.SoroTrack;
 
   // ---------------------------------------------------------------------------
   // Origin rewriting
@@ -69,32 +69,48 @@
   // LLM access
   // ---------------------------------------------------------------------------
 
-  const providerCache = new Map(); // baseUrl -> 'ollama' | 'openai'
+  const apiCache = new Map(); // local baseUrl -> 'ollama' | 'openai' (for "auto" detection)
 
-  async function getStatus(overrides) {
-    const settings = { ...(await getSettings()), ...overrides };
-    const baseUrl = normalizeBaseUrl(settings.baseUrl);
-    await ensureOriginRewrite(baseUrl);
-    const result = await listModels(settings);
-    providerCache.set(baseUrl, result.provider);
-    const ids = result.models.map((m) => m.id);
-    const model = ids.includes(settings.model) ? settings.model : ids[0] || '';
-    return { ok: true, ...result, model };
+  // overrides: { settings, apiKeys } — lets the settings page test values before saving them.
+  async function getConnection(overrides = {}) {
+    const settings = { ...(await getSettings()), ...(overrides.settings || {}) };
+    const apiKeys = { ...(await getApiKeys()), ...(overrides.apiKeys || {}) };
+    const connection = resolveConnection(settings, apiKeys);
+    // Only local servers need the Origin rewrite; hosted APIs accept extension requests.
+    if (!connection.cloud) await ensureOriginRewrite(normalizeBaseUrl(connection.baseUrl));
+    return connection;
   }
 
-  async function resolveChatSettings(modelOverride) {
-    const settings = await getSettings();
-    if (modelOverride) settings.model = modelOverride;
-    const baseUrl = normalizeBaseUrl(settings.baseUrl);
-    await ensureOriginRewrite(baseUrl);
+  async function getStatus(overrides) {
+    const connection = await getConnection(overrides);
+    const result = await listModels(connection);
+    if (!connection.cloud) apiCache.set(result.baseUrl, result.api);
+    const ids = result.models.map((m) => m.id);
+    let model = connection.model;
+    if (!model || (!connection.cloud && !ids.includes(model))) model = result.suggested;
+    // Hosted APIs accept models that aren't listed (aliases, new releases): keep the user's choice.
+    if (model && !ids.includes(model)) result.models.unshift({ id: model, size: '', capabilities: [] });
+    return {
+      ok: true,
+      api: result.api,
+      baseUrl: result.baseUrl,
+      models: result.models,
+      model,
+      cloud: connection.cloud,
+      providerLabel: connection.label,
+    };
+  }
 
-    let provider = settings.provider !== 'auto' ? settings.provider : providerCache.get(baseUrl);
-    if (!provider || !settings.model) {
-      const status = await getStatus({ model: settings.model });
-      provider = status.provider;
-      settings.model = settings.model || status.model;
+  async function resolveChat(modelOverride) {
+    const connection = await getConnection();
+    if (modelOverride) connection.model = modelOverride;
+    let api = connection.api === 'auto' ? apiCache.get(normalizeBaseUrl(connection.baseUrl)) : connection.api;
+    if (!api || !connection.model) {
+      const status = await getStatus();
+      api = status.api;
+      connection.model = connection.model || status.model;
     }
-    return { settings, provider };
+    return { connection, api };
   }
 
   function errorPayload(err) {
@@ -124,10 +140,10 @@
       if (!msg || msg.type !== 'chat') return;
       let sentThinking = false;
       try {
-        const { settings, provider } = await resolveChatSettings(msg.model);
+        const { connection, api } = await resolveChat(msg.model);
         const text = await chat({
-          settings,
-          provider,
+          connection,
+          api,
           messages: msg.messages,
           json: Boolean(msg.json),
           signal: controller.signal,
@@ -137,7 +153,7 @@
             sentThinking = true;
           },
         });
-        post({ type: 'done', text, model: settings.model });
+        post({ type: 'done', text, model: connection.model });
       } catch (err) {
         if (err && err.name === 'AbortError') return;
         post({ type: 'error', ...errorPayload(err) });
@@ -221,14 +237,11 @@
   ext.runtime.onStartup.addListener(createMenus);
 
   // Keep the Firefox rewrite target current even before the first request after a restart.
-  getSettings()
-    .then((s) => ensureOriginRewrite(normalizeBaseUrl(s.baseUrl)))
-    .catch(() => {});
+  getConnection().catch(() => {});
   ext.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.settings) {
-      providerCache.clear();
-      const next = changes.settings.newValue || {};
-      if (next.baseUrl) ensureOriginRewrite(normalizeBaseUrl(next.baseUrl)).catch(() => {});
+    if (area === 'local' && (changes.settings || changes.apiKeys)) {
+      apiCache.clear();
+      getConnection().catch(() => {});
     }
   });
 })();

@@ -1,16 +1,35 @@
 (function () {
   'use strict';
 
-  const { ext, getSettings, saveSettings, PROVIDER_PRESETS, DEFAULT_SETTINGS } = globalThis.SoroTrack;
+  const S = globalThis.SoroTrack;
+  const { ext, DEFAULT_SETTINGS, PROVIDER_PRESETS, CLOUD_PROVIDERS } = S;
   const $ = (id) => document.getElementById(id);
-  const TEXT_FIELDS = ['baseUrl', 'provider', 'apiKey', 'slopMode'];
+  const TEXT_FIELDS = ['baseUrl', 'provider', 'apiKey', 'slopMode', 'cloudProvider', 'customBaseUrl'];
   const NUMBER_FIELDS = ['temperature', 'contextWindow', 'maxPageChars'];
   const CHECK_FIELDS = ['allowThinking', 'showLauncher'];
 
+  let saved = { ...DEFAULT_SETTINGS }; // last saved settings, for fields this page doesn't show
   let hiddenSites = [];
+  let apiKeys = {}; // edited keys per provider, saved with the form
+  let modelChoice = { local: '', cloud: {} }; // model picked per connection while editing
+  let testRun = 0;
+
+  const source = () => document.querySelector('input[name="source"]:checked')?.value || 'local';
+  const currentModelKey = () => (source() === 'cloud' ? $('cloudProvider').value : 'local');
+
+  function rememberModel() {
+    const value = $('model').value;
+    if (currentModelKey() === 'local') modelChoice.local = value;
+    else modelChoice.cloud[currentModelKey()] = value;
+  }
+
+  function chosenModel() {
+    return currentModelKey() === 'local' ? modelChoice.local : modelChoice.cloud[currentModelKey()] || '';
+  }
 
   function readForm() {
-    const values = { model: $('model').value, hiddenSites };
+    rememberModel();
+    const values = { ...saved, source: source(), hiddenSites, model: modelChoice.local, cloudModels: { ...modelChoice.cloud } };
     for (const id of TEXT_FIELDS) values[id] = $(id).value.trim();
     for (const id of NUMBER_FIELDS) {
       const n = Number($(id).value);
@@ -22,21 +41,44 @@
   }
 
   function fillForm(settings) {
+    saved = settings;
     for (const id of [...TEXT_FIELDS, ...NUMBER_FIELDS]) $(id).value = settings[id];
     for (const id of CHECK_FIELDS) $(id).checked = Boolean(settings[id]);
-    setModelOptions([], settings.model);
+    document.querySelector(`input[name="source"][value="${settings.source === 'cloud' ? 'cloud' : 'local'}"]`).checked = true;
+    modelChoice = { local: settings.model || '', cloud: { ...(settings.cloudModels || {}) } };
     hiddenSites = [...(settings.hiddenSites || [])];
     renderSites();
+    showSource();
   }
 
-  function setModelOptions(models, selected) {
+  // Shows the fields for the selected source/provider and resets the model list.
+  function showSource() {
+    const cloud = source() === 'cloud';
+    $('localFields').hidden = cloud;
+    $('cloudFields').hidden = !cloud;
+    const provider = S.cloudProvider($('cloudProvider').value);
+    $('customBaseUrlField').hidden = provider.id !== 'custom';
+    $('cloudKey').value = apiKeys[provider.id] || '';
+    $('cloudKey').placeholder = provider.keyPlaceholder || 'API key';
+    $('keyLink').hidden = !provider.keyUrl;
+    if (provider.keyUrl) $('keyLink').href = provider.keyUrl;
+    $('cloudName').textContent = provider.id === 'custom' ? 'that API' : provider.label;
+    $('modelHint').textContent = cloud
+      ? 'Larger models give better summaries and filtering; smaller ones are faster and cheaper.'
+      : 'Smaller models (3–8B) answer faster; larger ones summarize and filter better.';
+    setModelOptions([], chosenModel());
+    $('result').hidden = true;
+  }
+
+  function setModelOptions(models, selected, suggested = '') {
     const select = $('model');
     const ids = models.map((m) => m.id);
     if (selected && !ids.includes(selected)) ids.unshift(selected);
-    select.replaceChildren(new Option('First available model', ''));
+    select.replaceChildren(new Option(suggested ? `Recommended (${suggested})` : 'Recommended', ''));
     for (const id of ids) {
       const info = models.find((m) => m.id === id);
-      select.append(new Option(info && info.size ? `${id} · ${info.size}` : id, id));
+      const label = info && info.name && info.name !== id ? `${info.name} (${id})` : id;
+      select.append(new Option(info && info.size ? `${label} · ${info.size}` : label, id));
     }
     select.value = selected || '';
   }
@@ -75,26 +117,27 @@
 
   async function testConnection() {
     const form = readForm();
-    showResult('connecting', `Connecting to ${form.baseUrl}…`);
+    const run = ++testRun;
+    const connection = S.resolveConnection(form, apiKeys);
+    showResult('connecting', `Connecting to ${connection.cloud ? connection.label : form.baseUrl}…`);
     $('test').disabled = true;
     try {
-      const res = await ext.runtime.sendMessage({
-        type: 'llm:status',
-        overrides: { baseUrl: form.baseUrl, provider: form.provider, apiKey: form.apiKey, model: form.model },
-      });
+      const res = await ext.runtime.sendMessage({ type: 'llm:status', overrides: { settings: form, apiKeys } });
+      if (run !== testRun) return; // a newer test started (source or provider changed)
       if (!res || res.ok === false) {
         showResult('offline', (res && res.error) || 'Connection failed.', res && res.hint);
         return;
       }
-      const api = res.provider === 'ollama' ? 'Ollama' : 'OpenAI-compatible API';
+      const where = res.cloud ? res.providerLabel : `${res.api === 'ollama' ? 'Ollama' : 'OpenAI-compatible API'} at ${res.baseUrl}`;
+      const count = res.models.length;
       showResult(
         'ready',
-        `Connected to ${api} at ${res.baseUrl} — ${res.models.length} chat model${res.models.length === 1 ? '' : 's'} available.`,
-        res.models.length ? '' : 'Download a model first, for example: ollama pull llama3.2'
+        `Connected to ${where} — ${count} chat model${count === 1 ? '' : 's'} available.`,
+        count ? '' : res.cloud ? 'This key has no chat models available.' : 'Download a model first, for example: ollama pull llama3.2'
       );
-      setModelOptions(res.models, form.model);
+      setModelOptions(res.models, chosenModel(), res.model);
     } finally {
-      $('test').disabled = false;
+      if (run === testRun) $('test').disabled = false;
     }
   }
 
@@ -111,17 +154,46 @@
     $('presets').append(button);
   }
 
+  for (const provider of CLOUD_PROVIDERS) $('cloudProvider').append(new Option(provider.label, provider.id));
+
+  // Each source/provider keeps its own model choice; rememberModel records it as it changes.
+  $('model').addEventListener('change', rememberModel);
+  for (const radio of document.querySelectorAll('input[name="source"]')) {
+    radio.addEventListener('change', () => {
+      showSource();
+      if (source() === 'local' || apiKeys[$('cloudProvider').value]) testConnection();
+    });
+  }
+  $('cloudProvider').addEventListener('change', () => {
+    showSource();
+    if (apiKeys[$('cloudProvider').value]) testConnection();
+  });
+
+  $('cloudKey').addEventListener('input', () => {
+    apiKeys[$('cloudProvider').value] = $('cloudKey').value.trim();
+  });
+  $('cloudKey').addEventListener('change', () => {
+    if ($('cloudKey').value.trim()) testConnection();
+  });
+  $('toggleKey').addEventListener('click', () => {
+    const show = $('cloudKey').type === 'password';
+    $('cloudKey').type = show ? 'text' : 'password';
+    $('toggleKey').textContent = show ? 'Hide' : 'Show';
+  });
+
   $('test').addEventListener('click', testConnection);
 
   $('form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    await saveSettings(readForm());
+    await S.saveApiKeys(apiKeys);
+    saved = await S.saveSettings(readForm());
     $('saved').textContent = 'Saved.';
     setTimeout(() => ($('saved').textContent = ''), 2500);
   });
 
-  getSettings().then((settings) => {
+  Promise.all([S.getSettings(), S.getApiKeys()]).then(([settings, keys]) => {
+    apiKeys = keys;
     fillForm(settings);
-    testConnection();
+    if (settings.source !== 'cloud' || keys[settings.cloudProvider]) testConnection();
   });
 })();

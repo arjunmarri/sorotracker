@@ -55,6 +55,7 @@
         <div class="status">
           <span class="dot" aria-hidden="true"></span>
           <span class="status-text">Not connected</span>
+          <span class="where" hidden></span>
           <select class="model" aria-label="Model" hidden></select>
         </div>
         <button class="icon-btn menu-btn" type="button" aria-label="More options" aria-haspopup="menu">${ICONS.more}</button>
@@ -74,7 +75,7 @@
       <div class="thread" aria-live="polite">
         <div class="empty">
           <strong>Your private page assistant</strong>
-          Runs on the model served at your local URL. Nothing leaves your machine.
+          <span class="empty-note">Runs on the model served at your local URL. Nothing leaves your machine.</span>
           <ul>
             <li><b>Summarize</b> the page</li>
             <li><b>Save snippet</b> — your selection, or the whole page</li>
@@ -97,6 +98,8 @@
     panel: $('.panel'),
     dot: $('.dot'),
     statusText: $('.status-text'),
+    where: $('.where'),
+    emptyNote: $('.empty-note'),
     model: $('.model'),
     menuBtn: $('.menu-btn'),
     menu: $('.menu'),
@@ -134,6 +137,7 @@
   const state = {
     settings: { ...S.DEFAULT_SETTINGS },
     status: 'idle', // idle | connecting | ready | offline
+    cloud: false, // true when a hosted API is in use
     busy: null, // AbortController of the running task
     history: [], // chat turns (without the page context)
     pageContext: null, // { url, page } used for questions
@@ -211,6 +215,7 @@
     els.statusText.textContent = text;
     els.statusText.hidden = status === 'ready';
     els.model.hidden = status !== 'ready';
+    els.where.hidden = status !== 'ready' || !state.cloud;
     updateControls();
   }
 
@@ -218,6 +223,11 @@
     setStatus('connecting', 'Connecting…');
     try {
       const status = await sendMessage({ type: 'llm:status' });
+      state.cloud = status.cloud;
+      els.where.textContent = status.providerLabel;
+      els.emptyNote.textContent = status.cloud
+        ? `Runs on ${status.providerLabel} with your API key. Page text you act on is sent to ${status.providerLabel}.`
+        : 'Runs on the model served at your local URL. Nothing leaves your machine.';
       els.model.replaceChildren(
         ...status.models.map((m) => {
           const option = document.createElement('option');
@@ -229,14 +239,15 @@
       if (!status.models.length) {
         setStatus('offline', 'No models');
         showError(
-          new Error(`Connected to ${status.baseUrl}, but it has no chat models.`),
-          'Download one first, for example: ollama pull llama3.2',
+          new Error(`Connected to ${status.cloud ? status.providerLabel : status.baseUrl}, but it has no chat models.`),
+          status.cloud ? 'Choose a model in settings.' : 'Download one first, for example: ollama pull llama3.2',
           true
         );
         return;
       }
       els.model.value = status.model;
-      els.model.title = `${status.model} via ${status.provider === 'ollama' ? 'Ollama' : 'OpenAI-compatible API'} at ${status.baseUrl}`;
+      const via = status.cloud ? status.providerLabel : status.api === 'ollama' ? 'Ollama' : 'OpenAI-compatible API';
+      els.model.title = `${status.model} via ${via} at ${status.baseUrl}`;
       setStatus('ready', status.model);
     } catch (err) {
       setStatus('offline', 'Offline');
@@ -651,7 +662,7 @@
   });
 
   els.model.addEventListener('change', () => {
-    S.saveSettings({ model: els.model.value });
+    S.saveSettings(S.modelPatch(state.settings, els.model.value));
     els.statusText.textContent = els.model.value;
   });
 
@@ -701,12 +712,17 @@
   });
 
   ext.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local' || !changes.settings) return;
+    if (area !== 'local') return;
+    if (changes.apiKeys) {
+      if (isOpen()) connect();
+      return;
+    }
+    if (!changes.settings) return;
     const before = state.settings;
     state.settings = { ...S.DEFAULT_SETTINGS, ...(changes.settings.newValue || {}) };
     applySettings();
-    const connectionChanged = ['baseUrl', 'provider', 'apiKey'].some((k) => before[k] !== state.settings[k]);
-    if (connectionChanged && isOpen()) connect();
+    const keys = ['source', 'baseUrl', 'provider', 'apiKey', 'cloudProvider', 'customBaseUrl'];
+    if (keys.some((k) => before[k] !== state.settings[k]) && isOpen()) connect();
   });
 
   S.getSettings().then((settings) => {

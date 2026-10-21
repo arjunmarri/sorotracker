@@ -93,6 +93,10 @@ header {
 .dot.connecting { background: var(--warn); animation: pulse 1s ease-in-out infinite; }
 .dot.offline { background: var(--err); }
 .status-text { font-size: 12px; color: var(--fg-muted); white-space: nowrap; }
+.where {
+  font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft);
+  padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+}
 .model {
   max-width: 150px; min-width: 0; border: none; background: transparent; font-size: 12px;
   padding: 2px 2px; text-overflow: ellipsis; border-radius: 6px;

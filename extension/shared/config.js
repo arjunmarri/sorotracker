@@ -10,10 +10,19 @@
     root.browser && root.browser.runtime && root.browser.runtime.id ? root.browser : root.chrome;
 
   const DEFAULT_SETTINGS = Object.freeze({
+    source: 'local', // 'local' | 'cloud'
+
+    // Local model server
     baseUrl: 'http://127.0.0.1:11434',
     provider: 'auto', // 'auto' | 'ollama' | 'openai'
     model: '',
     apiKey: '',
+
+    // Cloud provider (API keys are stored separately, see getApiKeys)
+    cloudProvider: 'anthropic',
+    cloudModels: {}, // provider id -> chosen model
+    customBaseUrl: '',
+
     temperature: 0.3,
     contextWindow: 8192, // Ollama num_ctx; its default is too small for whole pages
     maxPageChars: 12000,
@@ -30,6 +39,144 @@
     { id: 'jan', label: 'Jan', baseUrl: 'http://127.0.0.1:1337/v1', provider: 'openai' },
   ]);
 
+  // Hosted APIs. `api` is the wire format; most providers speak the OpenAI chat-completions dialect.
+  // `include`/`exclude` trim each provider's model list down to chat models; `prefer` picks the
+  // default when the user hasn't chosen one.
+  const NON_CHAT = /embed|whisper|tts|audio|realtime|transcribe|image|dall-e|moderation|search|guard|vision-preview|imagen|veo|aqa|computer-use/i;
+  const CLOUD_PROVIDERS = Object.freeze([
+    {
+      id: 'anthropic',
+      label: 'Anthropic (Claude)',
+      api: 'anthropic',
+      baseUrl: 'https://api.anthropic.com/v1',
+      keyUrl: 'https://console.anthropic.com/settings/keys',
+      keyPlaceholder: 'sk-ant-…',
+      include: /^claude-/,
+      prefer: [/^claude-opus-5-5$/, /^claude-opus/, /^claude-sonnet/],
+    },
+    {
+      id: 'openai',
+      label: 'OpenAI',
+      api: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      keyUrl: 'https://platform.openai.com/api-keys',
+      keyPlaceholder: 'sk-…',
+      include: /^(gpt-|o\d|chatgpt-)/,
+      prefer: [/^gpt-5(\.\d+)?$/, /^gpt-5/, /^gpt-4\.1$/, /^gpt-4o$/],
+    },
+    {
+      id: 'gemini',
+      label: 'Google Gemini',
+      api: 'openai',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      keyUrl: 'https://aistudio.google.com/apikey',
+      keyPlaceholder: 'AIza…',
+      include: /^gemini-/,
+      prefer: [/^gemini-[\d.]+-pro$/, /^gemini-[\d.]+-flash$/, /pro/, /flash/],
+    },
+    {
+      id: 'openrouter',
+      label: 'OpenRouter',
+      api: 'openai',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      keyUrl: 'https://openrouter.ai/keys',
+      keyPlaceholder: 'sk-or-…',
+      prefer: [/^anthropic\/claude-opus/, /^openai\/gpt-5/, /^google\/gemini/],
+    },
+    {
+      id: 'groq',
+      label: 'Groq',
+      api: 'openai',
+      baseUrl: 'https://api.groq.com/openai/v1',
+      keyUrl: 'https://console.groq.com/keys',
+      keyPlaceholder: 'gsk_…',
+      prefer: [/llama.*70b/, /llama/],
+    },
+    {
+      id: 'mistral',
+      label: 'Mistral',
+      api: 'openai',
+      baseUrl: 'https://api.mistral.ai/v1',
+      keyUrl: 'https://console.mistral.ai/api-keys',
+      keyPlaceholder: '',
+      prefer: [/^mistral-large-latest$/, /^mistral-medium-latest$/, /large/],
+    },
+    {
+      id: 'deepseek',
+      label: 'DeepSeek',
+      api: 'openai',
+      baseUrl: 'https://api.deepseek.com/v1',
+      keyUrl: 'https://platform.deepseek.com/api_keys',
+      keyPlaceholder: 'sk-…',
+      prefer: [/^deepseek-chat$/],
+    },
+    {
+      id: 'xai',
+      label: 'xAI (Grok)',
+      api: 'openai',
+      baseUrl: 'https://api.x.ai/v1',
+      keyUrl: 'https://console.x.ai',
+      keyPlaceholder: 'xai-…',
+      include: /^grok-/,
+      prefer: [/^grok-\d+$/, /^grok/],
+    },
+    {
+      id: 'custom',
+      label: 'Other (OpenAI-compatible URL)',
+      api: 'openai',
+      baseUrl: '', // from settings.customBaseUrl
+      keyUrl: '',
+      keyPlaceholder: '',
+    },
+  ]);
+
+  function cloudProvider(id) {
+    return CLOUD_PROVIDERS.find((p) => p.id === id) || CLOUD_PROVIDERS[0];
+  }
+
+  /**
+   * Describes where requests go for the current settings. Everything that talks to a model
+   * works from this object, so local and cloud share one code path.
+   */
+  function resolveConnection(settings, apiKeys = {}) {
+    const generation = {
+      temperature: Number(settings.temperature),
+      contextWindow: Number(settings.contextWindow) || 8192,
+      allowThinking: Boolean(settings.allowThinking),
+    };
+    if (settings.source === 'cloud') {
+      const p = cloudProvider(settings.cloudProvider);
+      return {
+        id: p.id,
+        label: p.id === 'custom' ? 'Custom API' : p.label.replace(/ \(.*\)$/, ''),
+        cloud: true,
+        api: p.api,
+        baseUrl: p.id === 'custom' ? String(settings.customBaseUrl || '').trim().replace(/\/+$/, '') : p.baseUrl,
+        apiKey: apiKeys[p.id] || '',
+        model: (settings.cloudModels || {})[p.id] || '',
+        catalog: p,
+        ...generation,
+      };
+    }
+    return {
+      id: 'local',
+      label: 'Local',
+      cloud: false,
+      api: settings.provider || 'auto',
+      baseUrl: settings.baseUrl,
+      apiKey: settings.apiKey || '',
+      model: settings.model || '',
+      catalog: null,
+      ...generation,
+    };
+  }
+
+  // Settings patch that stores `model` as the choice for whichever connection is active.
+  function modelPatch(settings, model) {
+    if (settings.source !== 'cloud') return { model };
+    return { cloudModels: { ...(settings.cloudModels || {}), [settings.cloudProvider]: model } };
+  }
+
   async function getSettings() {
     const stored = await ext.storage.local.get('settings');
     return { ...DEFAULT_SETTINGS, ...(stored.settings || {}) };
@@ -41,5 +188,32 @@
     return next;
   }
 
-  Object.assign(SoroTrack, { ext, DEFAULT_SETTINGS, PROVIDER_PRESETS, getSettings, saveSettings });
+  // Cloud API keys live under their own storage key so page-facing code that reads settings
+  // never handles them; only the background worker and the settings page read this.
+  async function getApiKeys() {
+    const stored = await ext.storage.local.get('apiKeys');
+    return { ...(stored.apiKeys || {}) };
+  }
+
+  async function saveApiKeys(patch) {
+    const next = { ...(await getApiKeys()), ...patch };
+    for (const id of Object.keys(next)) if (!next[id]) delete next[id];
+    await ext.storage.local.set({ apiKeys: next });
+    return next;
+  }
+
+  Object.assign(SoroTrack, {
+    ext,
+    DEFAULT_SETTINGS,
+    PROVIDER_PRESETS,
+    CLOUD_PROVIDERS,
+    NON_CHAT,
+    cloudProvider,
+    resolveConnection,
+    modelPatch,
+    getSettings,
+    saveSettings,
+    getApiKeys,
+    saveApiKeys,
+  });
 })(globalThis);

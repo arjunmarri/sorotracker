@@ -8,8 +8,9 @@
     const res = await ext.runtime.sendMessage({ type: 'llm:status' });
     if (res && res.ok) {
       $('dot').className = 'dot ready';
-      $('status').textContent = res.model ? `Connected · ${res.model}` : 'Connected, but no models installed';
-      $('status').title = `${res.baseUrl} (${res.provider === 'ollama' ? 'Ollama' : 'OpenAI-compatible'})`;
+      const where = res.cloud ? res.providerLabel : 'Local';
+      $('status').textContent = res.model ? `${where} · ${res.model}` : 'Connected, but no models available';
+      $('status').title = res.cloud ? `${res.providerLabel} API` : `${res.baseUrl} (${res.api === 'ollama' ? 'Ollama' : 'OpenAI-compatible'})`;
     } else {
       $('dot').className = 'dot offline';
       $('status').textContent = (res && res.error) || 'Not connected';

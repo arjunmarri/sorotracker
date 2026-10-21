@@ -1,6 +1,9 @@
 # SoroTrack
 
-A private assistant on every web page, powered by **your local LLM**. SoroTrack is a browser extension for Chrome (and Chromium browsers such as Edge and Brave) and Firefox, on macOS and Windows. It talks only to a model server on your own machine: [Ollama](https://ollama.com), LM Studio, llama.cpp, Jan, or any OpenAI-compatible server.
+An AI assistant on every web page. SoroTrack is a browser extension for Chrome (and Chromium browsers such as Edge and Brave) and Firefox, on macOS and Windows. It runs on either:
+
+- **A local model on your computer:** [Ollama](https://ollama.com), LM Studio, llama.cpp, Jan, or any OpenAI-compatible server. This is private and free.
+- **A cloud API with your own key:** Anthropic (Claude), OpenAI, Google Gemini, OpenRouter, Groq, Mistral, DeepSeek, xAI, or any OpenAI-compatible API. Use this if you don't have a local model.
 
 Click the ✦ button in the corner of any page to:
 
@@ -9,11 +12,24 @@ Click the ✦ button in the corner of any page to:
 - **Save snippet**: saves your selection (or the whole page) to a local library. The model writes a title, a summary and tags.
 - **Remove AI slop**: hides filler, machine-sounding padding and engagement bait, so the real content stays. You can restore the page or show the hidden parts dimmed. On feeds (X, Reddit, forums) it judges each post. On articles it judges each paragraph.
 
-Page text never leaves your computer. There are no accounts, no analytics and no cloud.
+With a local model, page text never leaves your computer. With a cloud API, the text you act on goes only to the provider you choose, and is billed to your key. There are no SoroTrack accounts, servers or analytics.
 
 ## Install
 
-### 1. Run a local model
+### 1. Choose a model
+
+**No local model? Use a cloud API.** Skip to step 2. After installing, open SoroTrack's settings, choose **Cloud API**, pick a provider and paste your API key. Each provider has a **Get a key** link. Then click **Test connection** and choose a model.
+
+| Provider | Where to get a key | Notes |
+|---|---|---|
+| Anthropic (Claude) | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Native Messages API; recommends Claude Opus 5.5 |
+| OpenAI | [platform.openai.com](https://platform.openai.com/api-keys) | |
+| Google Gemini | [aistudio.google.com](https://aistudio.google.com/apikey) | Gemini's OpenAI-compatible endpoint |
+| OpenRouter | [openrouter.ai/keys](https://openrouter.ai/keys) | One key for hundreds of models |
+| Groq, Mistral, DeepSeek, xAI | each provider's console | |
+| Other | — | Any OpenAI-compatible base URL (Together, Fireworks, Azure-style proxies…) |
+
+**Or run a local model:**
 
 **Ollama (recommended):** install it from [ollama.com](https://ollama.com) (macOS or Windows), then pull a model:
 
@@ -73,16 +89,18 @@ You can hide the button on a site from the assistant's **⋯** menu. Settings le
 ```
 
 - All model requests come from the background worker, so page Content Security Policies and mixed-content rules don't block them.
+- Three wire formats cover every provider: Ollama's native API, OpenAI chat completions (local servers and most cloud APIs), and Anthropic's Messages API. Claude requests send the system prompt as `system`, skip `temperature` (current Claude models don't accept it) and use `effort: low` for speed. Current models also opt in to server-side refusal fallbacks. If an OpenAI reasoning model rejects a custom temperature, the request is retried without it.
+- **API keys** are stored in the browser's extension storage on this device, under their own storage key, separate from the settings the page scripts load. Each key is sent only to its own provider. Anyone with access to your browser profile could read them, as with any extension that stores keys.
 - **Ollama and 403 errors:** Ollama rejects requests from `chrome-extension://` and `moz-extension://` origins by default. SoroTrack rewrites the `Origin` header to the server's own origin, which Ollama always accepts. This applies only to the extension's own background requests: Chrome uses a session `declarativeNetRequest` rule and Firefox uses `webRequest`. Requests from web pages are never changed, so you don't need to set `OLLAMA_ORIGINS`.
 - Reasoning models (Qwen3, DeepSeek-R1, Gemma 4…) run with thinking turned off for speed, and any `<think>` output is removed. You can turn thinking on in settings.
-- Settings and snippets are stored in `chrome.storage.local` on your machine (one key per snippet, so saves from several tabs can't overwrite each other).
+- Settings, keys and snippets are stored in `chrome.storage.local` on your machine (one key per snippet, so saves from several tabs can't overwrite each other).
 
 ## Development
 
 ```
 extension/
   manifest.json        base manifest; the build writes per-browser variants
-  background/          sw.js (Chrome entry) · background.js (routing, menus, Origin rewrite) · llm.js (Ollama + OpenAI-compatible client)
+  background/          sw.js (Chrome entry) · background.js (routing, menus, Origin rewrite) · llm.js (Ollama, OpenAI-compatible and Anthropic client)
   content/             assistant.js (panel UI and tasks) · extract.js (readable text, content blocks) · styles.js
   shared/              config.js (settings) · prompts.js · markdown.js (safe renderer) · snippets.js
   pages/               popup, options and snippets pages
@@ -109,6 +127,7 @@ After editing, run `npm run build` and click **Reload** on the extension card (o
   - macOS: `launchctl setenv OLLAMA_ORIGINS "chrome-extension://*,moz-extension://*"`
   - Windows: `setx OLLAMA_ORIGINS "chrome-extension://*,moz-extension://*"`
 - **The button doesn't appear**: browser pages (`chrome://`, the extension stores, PDFs) can't run extensions. On a normal site, reload the tab after installing.
+- **Cloud API errors:** *rejected the API key* means a wrong or expired key, or no billing set up. *Rate limiting* means wait a minute or check your account limits. *Model not found* means pick another model in settings.
 - **Slow first answer**: the model is loading into memory. Later requests are much faster.
 
 ## Earlier versions

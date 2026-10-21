@@ -1,6 +1,6 @@
 {
   "name": "sorotrack",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "Browser extension: a private page assistant powered by a local LLM (Ollama or any OpenAI-compatible server).",
   "type": "module",

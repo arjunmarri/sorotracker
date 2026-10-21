@@ -26,6 +26,15 @@
     .sites { display: flex; flex-wrap: wrap; gap: 6px; }
     .site { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 13px; }
     .site button { border: none; background: none; color: var(--fg-muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 5px; }
+    .sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .source { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+    .source:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+    .source input { margin-top: 3px; accent-color: var(--accent); }
+    .source small { display: block; color: var(--fg-muted); font-size: 12.5px; margin-top: 2px; }
+    .key-row { display: flex; gap: 8px; }
+    .key-row input { flex: 1; }
+    .field a { font-weight: 400; font-size: 12.5px; margin-left: 6px; }
+    .notice { font-size: 13px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--warn) 12%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); margin-bottom: 10px; }
     .savebar { position: sticky; bottom: 0; display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 12px 0; background: linear-gradient(transparent, var(--bg) 30%); }
     details summary { cursor: pointer; font-weight: 550; margin: 8px 0; }
   </style>
@@ -39,31 +48,62 @@
 
   <form id="form">
     <section>
-      <h2>Local model server</h2>
-      <p>SoroTrack sends page text only to this URL. Use a server running on your own machine.</p>
-      <div class="presets" id="presets"></div>
-      <div class="grid">
-        <label class="field"><span>Server URL</span>
-          <input type="text" id="baseUrl" spellcheck="false" placeholder="http://127.0.0.1:11434">
+      <h2>Model</h2>
+      <p>Choose where SoroTrack's AI runs.</p>
+      <div class="sources" role="radiogroup" aria-label="Where the model runs">
+        <label class="source"><input type="radio" name="source" value="local">
+          <span><b>Local model</b><small>Ollama, LM Studio, llama.cpp… Private and free: page text stays on your computer.</small></span>
         </label>
-        <label class="field"><span>API type</span>
-          <select id="provider">
-            <option value="auto">Detect automatically</option>
-            <option value="ollama">Ollama</option>
-            <option value="openai">OpenAI-compatible (/v1)</option>
-          </select>
+        <label class="source"><input type="radio" name="source" value="cloud">
+          <span><b>Cloud API</b><small>Claude, OpenAI, Gemini and others with your own API key. Nothing to install.</small></span>
         </label>
       </div>
-      <label class="field"><span>API key <small>(optional — only if your server requires one)</small></span>
-        <input type="password" id="apiKey" autocomplete="off" spellcheck="false">
-      </label>
-      <div class="row">
+
+      <div id="localFields">
+        <div class="presets" id="presets"></div>
+        <div class="grid">
+          <label class="field"><span>Server URL</span>
+            <input type="text" id="baseUrl" spellcheck="false" placeholder="http://127.0.0.1:11434">
+          </label>
+          <label class="field"><span>API type</span>
+            <select id="provider">
+              <option value="auto">Detect automatically</option>
+              <option value="ollama">Ollama</option>
+              <option value="openai">OpenAI-compatible (/v1)</option>
+            </select>
+          </label>
+        </div>
+        <label class="field"><span>API key <small>(optional — only if your server requires one)</small></span>
+          <input type="password" id="apiKey" autocomplete="off" spellcheck="false">
+        </label>
+      </div>
+
+      <div id="cloudFields" hidden>
+        <label class="field"><span>Provider</span>
+          <select id="cloudProvider"></select>
+        </label>
+        <label class="field" id="customBaseUrlField" hidden><span>API base URL <small>(OpenAI-compatible, usually ending in /v1)</small></span>
+          <input type="text" id="customBaseUrl" spellcheck="false" placeholder="https://api.together.xyz/v1">
+        </label>
+        <label class="field"><span>API key <a id="keyLink" target="_blank" rel="noopener">Get a key ↗</a></span>
+          <span class="key-row">
+            <input type="password" id="cloudKey" autocomplete="off" spellcheck="false">
+            <button class="btn small" type="button" id="toggleKey">Show</button>
+          </span>
+          <small>Stored only in this browser's extension storage on this device. It is sent only to the provider you pick.</small>
+        </label>
+        <div class="notice" role="note">
+          Page text you summarize, ask about, save or filter is sent to <b id="cloudName">the provider</b> and billed to your API key. Use a local model for pages you want to keep private.
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:6px">
         <button class="btn" type="button" id="test">Test connection</button>
       </div>
       <div class="result" id="result" hidden><span class="dot" id="resultDot"></span><div id="resultText"></div></div>
       <label class="field" style="margin-top:14px"><span>Model</span>
-        <select id="model"><option value="">First available model</option></select>
-        <small>Smaller models (3–8B) answer faster; larger ones summarize and filter better.</small>
+        <select id="model"><option value="">Recommended</option></select>
+        <small id="modelHint">Smaller models (3–8B) answer faster; larger ones summarize and filter better.</small>
       </label>
     </section>
 
@@ -73,7 +113,7 @@
       <div class="grid">
         <label class="field"><span>Temperature</span>
           <input type="number" id="temperature" min="0" max="2" step="0.1">
-          <small>Lower is more focused.</small>
+          <small>Lower is more focused. Claude and reasoning models use their own setting.</small>
         </label>
         <label class="field"><span>Context window (tokens)</span>
           <input type="number" id="contextWindow" min="2048" max="262144" step="1024">
@@ -121,6 +161,10 @@
         <p><b>Windows</b> (PowerShell or Command Prompt)</p>
         <pre>setx OLLAMA_ORIGINS "chrome-extension://*,moz-extension://*"</pre>
         <p>Then quit Ollama completely and start it again.</p>
+      </details>
+      <details>
+        <summary>Cloud API errors</summary>
+        <p><b>Key rejected (401/403):</b> check you copied the whole key and that billing or credits are set up on the provider's site. <b>Rate limited (429):</b> wait a minute, or raise your account's limits. <b>Model not found:</b> pick another model from the list.</p>
       </details>
       <details>
         <summary>LM Studio, llama.cpp, Jan and others</summary>

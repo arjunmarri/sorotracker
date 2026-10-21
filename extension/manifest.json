@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "SoroTrack — Local AI Assistant",
+  "name": "SoroTrack — AI Page Assistant",
   "short_name": "SoroTrack",
-  "version": "2.0.0",
-  "description": "A private assistant on every page, powered by your local LLM (Ollama, LM Studio, llama.cpp…). Summarize pages, save snippets, remove AI slop.",
+  "version": "2.1.0",
+  "description": "A page assistant powered by your local LLM (Ollama, LM Studio…) or your own API key (Claude, OpenAI, Gemini…). Summarize pages, save snippets, remove AI slop.",
   "permissions": ["storage", "unlimitedStorage", "contextMenus", "scripting", "activeTab", "declarativeNetRequestWithHostAccess"],
   "host_permissions": ["<all_urls>"],
   "background": {
